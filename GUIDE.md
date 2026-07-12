@@ -32,7 +32,7 @@ backends (llama.cpp / unsloth) are welcome contributions.
 ### macOS
 
 ```sh
-npm install -g footprint
+npm install -g Amanlabh/footprint
 ```
 
 or from source:
@@ -46,7 +46,7 @@ python3 footprint.py setup
 ### Linux
 
 ```sh
-npm install -g footprint      # or the git clone above
+npm install -g Amanlabh/footprint      # or the git clone above
 ```
 
 `setup` skips MLX automatically. `trace` and `collect` work; copy `data/` to a Mac to train.
@@ -56,7 +56,7 @@ npm install -g footprint      # or the git clone above
 Use PowerShell (Python 3 from python.org or the Microsoft Store):
 
 ```powershell
-npm install -g footprint
+npm install -g Amanlabh/footprint
 ```
 
 Same scope as Linux: trace + collect. WSL2 works the same way.
