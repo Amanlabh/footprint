@@ -1,0 +1,5 @@
+{
+  "name": "footprint",
+  "description": "Local SLM that learns from your Claude Code transcripts and replays your project's working style offline.",
+  "version": "0.1.0"
+}

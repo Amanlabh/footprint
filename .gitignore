@@ -1,0 +1,9 @@
+# private: your Claude session transcripts + weights trained on them
+data/
+adapters/
+
+.venv/
+node_modules/
+__pycache__/
+*.tgz
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "name": "footprint",
+  "version": "0.1.0",
+  "description": "Local SLM trained on your Claude Code sessions. When Claude quota runs out, OpenCode keeps working like Claude.",
+  "bin": {
+    "footprint": "bin/footprint.js"
+  },
+  "scripts": {
+    "postinstall": "node bin/banner.js"
+  },
+  "files": [
+    "bin",
+    "footprint.py",
+    "skills"
+  ],
+  "license": "MIT"
+}
