@@ -1,6 +1,6 @@
 {
   "name": "footprint-trace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local SLM trained on your Claude Code sessions. When Claude quota runs out, OpenCode keeps working like Claude.",
   "bin": {
     "footprint": "bin/footprint.js"
@@ -11,6 +11,7 @@
   "files": [
     "bin",
     "footprint.py",
+    "footprint_core",
     "skills"
   ],
   "license": "MIT"

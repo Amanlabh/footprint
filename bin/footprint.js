@@ -5,7 +5,10 @@ const fs = require("fs");
 
 const root = path.join(__dirname, "..");
 const script = path.join(root, "footprint.py");
-const venvPy = path.join(root, ".venv", "bin", "python");
+const win = process.platform === "win32";
+const venvPy = win
+  ? path.join(root, ".venv", "Scripts", "python.exe")
+  : path.join(root, ".venv", "bin", "python");
 const args = process.argv.slice(2);
 
 if (args.length === 0) {
@@ -13,8 +16,8 @@ if (args.length === 0) {
 }
 
 if (!fs.existsSync(venvPy)) {
-  console.log("first run — setting up (venv + mlx-lm, takes a minute)…");
-  const s = spawnSync("python3", [script, "setup"], { stdio: "inherit" });
+  console.log("first run — setting up (venv + model backend)…");
+  const s = spawnSync(win ? "python" : "python3", [script, "setup"], { stdio: "inherit" });
   if (s.status) process.exit(s.status);
 }
 

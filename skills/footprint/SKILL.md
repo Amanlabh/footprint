@@ -6,8 +6,10 @@ description: Local SLM that learns from Claude Code transcripts ("footprint") an
 # Footprint
 
 Footprint collects this machine's Claude Code session transcripts, fine-tunes a
-small local model (MLX LoRA, Apple Silicon) on them, and can then execute tasks
-locally with a tiny bash-tool agent loop — no API needed.
+small local model on them (MLX LoRA on Apple Silicon, torch+PEFT elsewhere),
+and serves it as an OpenAI-compatible API for OpenCode/Cursor/Codex.
+Code layout: `footprint.py` (entry shim) -> `footprint_core/` (cli, config,
+transcripts, service, backends/{mlx,torch}_backend.py).
 
 Repo: `/Users/aman/Developer/footprint`. Python: `/Users/aman/Developer/footprint/.venv/bin/python`
 (if `.venv` missing, run `setup` first with system `python3`).

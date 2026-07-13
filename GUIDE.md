@@ -13,19 +13,18 @@ trace → chat with claude → collect → train → install → /footprint in O
 
 | | trace / collect | train / serve |
 |---|---|---|
-| **macOS (Apple Silicon)** | ✅ | ✅ (MLX) |
-| **macOS (Intel)** | ✅ | ❌ |
-| **Linux** | ✅ | ❌ (for now) |
-| **Windows** | ✅ | ❌ (for now) |
+| **macOS (Apple Silicon)** | ✅ | ✅ MLX backend |
+| **Linux** | ✅ | ✅ torch backend (CUDA or CPU) |
+| **Windows** | ✅ | ✅ torch backend (CUDA or CPU) |
+| **macOS (Intel)** | ✅ | ✅ torch backend (CPU) |
 
 - [Claude Code](https://claude.com/claude-code) installed and used at least once (transcripts live in `~/.claude/projects`)
 - Python 3.9+
 - Node.js 18+ (only if installing via npm)
 
-Training and serving use [MLX](https://github.com/ml-explore/mlx), which is
-Apple-Silicon-only today. On Linux/Windows you can still trace and collect —
-your `data/` folder is portable; train it on any Apple Silicon Mac. Other
-backends (llama.cpp / unsloth) are welcome contributions.
+footprint picks the backend automatically: [MLX](https://github.com/ml-explore/mlx)
+on Apple Silicon, PyTorch + PEFT everywhere else (uses CUDA when available;
+CPU works but trains slowly — prefer a GPU or drop `FOOTPRINT_ITERS`).
 
 ## Install
 
@@ -49,7 +48,7 @@ python3 footprint.py setup
 npm install -g footprint-trace      # or the git clone above
 ```
 
-`setup` skips MLX automatically. `trace` and `collect` work; copy `data/` to a Mac to train.
+First run installs the torch backend (one-time, ~2 GB). CUDA GPU picked up automatically.
 
 ### Windows
 
@@ -59,7 +58,7 @@ Use PowerShell (Python 3 from python.org or the Microsoft Store):
 npm install -g footprint-trace
 ```
 
-Same scope as Linux: trace + collect. WSL2 works the same way.
+Same as Linux: full trace/collect/train/serve via the torch backend. WSL2 also works.
 
 ## Getting started
 
@@ -88,14 +87,15 @@ footprint collect     # transcripts -> data/train.jsonl + data/valid.jsonl
 footprint train       # LoRA fine-tune (~10 min, downloads ~1 GB base model first time)
 ```
 
-**4. Install the always-on server (macOS).**
+**4. Install the always-on server.**
 
 ```sh
 footprint install
 ```
 
-This registers a launchd agent — the server starts at login, restarts if it
-crashes, and you never run it by hand. It also wires up OpenCode:
+This registers the server with your OS — launchd (macOS), systemd (Linux) or
+Task Scheduler (Windows) — so it starts at login, restarts if it crashes, and
+you never run it by hand. It also wires up OpenCode:
 
 - provider `footprint` at `http://127.0.0.1:8399/v1`
 - a `/footprint <task>` command inside OpenCode
@@ -124,7 +124,7 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint trace` | arm tracing (run before starting Claude) |
 | `footprint collect [dir]` | parse transcripts of a project (default: current dir; unknown dir = all projects) |
 | `footprint train` | LoRA fine-tune on collected data |
-| `footprint install` | launchd auto-server + OpenCode integration (macOS) |
+| `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
 | `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
 | `footprint status` | model, example count, adapter, tracing, server state |
 
@@ -132,15 +132,15 @@ Or point any OpenAI-compatible tool at the server:
 
 | Env var | Default | |
 |---|---|---|
-| `FOOTPRINT_MODEL` | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` | any MLX chat model |
+| `FOOTPRINT_MODEL` | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (mac) / `Qwen/Qwen2.5-Coder-1.5B-Instruct` | any chat model of the backend |
 | `FOOTPRINT_ITERS` | `300` | training iterations |
 | `FOOTPRINT_PORT` | `8399` | server port |
 
 ## Troubleshooting
 
 - **`no transcripts found`** — either you haven't used Claude Code in this project, or the trace marker is newer than all sessions. Chat first, or `rm ~/.claude/footprint-trace`.
-- **server not responding** — check `/tmp/footprint-serve.log`; `launchctl kickstart -k gui/$UID/com.footprint.serve` restarts it.
-- **`mlx_lm` import fails** — re-run `footprint setup` (Apple Silicon only).
+- **server not responding** — macOS: `/tmp/footprint-serve.log`, `launchctl kickstart -k gui/$UID/com.footprint.serve`; Linux: `journalctl --user -u footprint`, `systemctl --user restart footprint`; Windows: `schtasks /Run /TN footprint-serve`.
+- **backend import fails** (`mlx_lm` / `torch`) — re-run `footprint setup`.
 - **quality is rough** — more data beats more iterations: keep tracing, re-collect, re-train. 1.5B is small; try `FOOTPRINT_MODEL=mlx-community/Qwen2.5-Coder-7B-Instruct-4bit` if you have ≥16 GB RAM.
 
 ## Privacy
