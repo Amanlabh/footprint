@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { Octocat } from "@/components/site/octocat";
 
 export function Logo({ className }: { className?: string }) {
   return (
@@ -10,12 +11,7 @@ export function Logo({ className }: { className?: string }) {
         className,
       )}
     >
-      <span
-        aria-hidden
-        className="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground text-sm shadow-sm"
-      >
-        ▚
-      </span>
+      <Octocat still className="size-6" />
       <span>footprint</span>
     </Link>
   );

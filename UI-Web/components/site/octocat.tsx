@@ -40,12 +40,22 @@ function rects(lines: string[], rowOffset = 0) {
   return out;
 }
 
-export function Octocat({ className }: { className?: string }) {
+export function Octocat({
+  className,
+  still = false,
+}: {
+  className?: string;
+  still?: boolean;
+}) {
   return (
     <span
-      aria-label="animated pixel Octocat"
+      aria-label="pixel Octocat"
       role="img"
-      className={cn("octocat-hop inline-block text-primary", className)}
+      className={cn(
+        "inline-block text-primary",
+        !still && "octocat-hop",
+        className,
+      )}
     >
       <svg
         viewBox={`0 0 ${12 * PX} ${12 * PX}`}
@@ -54,8 +64,14 @@ export function Octocat({ className }: { className?: string }) {
         shapeRendering="crispEdges"
       >
         {rects(BODY)}
-        <g className="octocat-legs-a">{rects(LEGS_A, 9)}</g>
-        <g className="octocat-legs-b">{rects(LEGS_B, 9)}</g>
+        {still ? (
+          rects(LEGS_A, 9)
+        ) : (
+          <>
+            <g className="octocat-legs-a">{rects(LEGS_A, 9)}</g>
+            <g className="octocat-legs-b">{rects(LEGS_B, 9)}</g>
+          </>
+        )}
       </svg>
     </span>
   );
