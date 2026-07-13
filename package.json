@@ -11,7 +11,8 @@
   "files": [
     "bin",
     "footprint.py",
-    "footprint_core",
+    "footprint_core/*.py",
+    "footprint_core/backends/*.py",
     "skills"
   ],
   "license": "MIT"
