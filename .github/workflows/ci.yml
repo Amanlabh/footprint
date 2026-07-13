@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: compile all modules
+        run: python -m py_compile footprint.py footprint_core/cli.py footprint_core/config.py footprint_core/service.py footprint_core/transcripts.py footprint_core/backends/mlx_backend.py footprint_core/backends/torch_backend.py
+      - name: cli smoke (status + trace)
+        run: |
+          python footprint.py status
+          python footprint.py trace
+      - name: node bin syntax
+        run: |
+          node --check bin/footprint.js
+          node --check bin/banner.js
+      - name: npm tarball sanity
+        run: npm pack --dry-run
