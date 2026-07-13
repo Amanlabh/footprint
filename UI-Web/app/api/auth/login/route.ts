@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 export async function GET(req: Request) {
-  const clientId = process.env.GITHUB_CLIENT_ID;
+  const clientId = process.env.GITHUB_CLIENT_ID?.trim();
   if (!clientId) return new Response("GITHUB_CLIENT_ID not set", { status: 500 });
 
   const state = crypto.randomBytes(16).toString("hex");

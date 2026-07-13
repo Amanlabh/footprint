@@ -18,8 +18,8 @@ export async function GET(req: Request) {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: process.env.GITHUB_CLIENT_ID?.trim(),
+      client_secret: process.env.GITHUB_CLIENT_SECRET?.trim(),
       code,
       redirect_uri: new URL("/api/auth/callback", req.url).toString(),
     }),
