@@ -1,0 +1,270 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-funnel);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-funnel);
+  --font-doto: var(--font-doto);
+  --font-pixel: var(--font-pixel);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-guava-flesh: var(--guava-flesh);
+  --color-guava-rind: var(--guava-rind);
+  --color-guava-seed: var(--guava-seed);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Guava fruit palette:
+   flesh = coral-pink interior, rind = yellow-green skin, seed = pale cream */
+:root {
+  --radius: 0.7rem;
+
+  --guava-flesh: oklch(0.66 0.185 12);
+  --guava-rind: oklch(0.78 0.14 128);
+  --guava-seed: oklch(0.95 0.03 70);
+
+  --background: oklch(0.985 0.012 55);
+  --foreground: oklch(0.26 0.045 18);
+
+  --card: oklch(0.995 0.008 60);
+  --card-foreground: oklch(0.26 0.045 18);
+  --popover: oklch(0.995 0.008 60);
+  --popover-foreground: oklch(0.26 0.045 18);
+
+  --primary: oklch(0.64 0.19 12);
+  --primary-foreground: oklch(0.99 0.01 60);
+
+  --secondary: oklch(0.95 0.035 45);
+  --secondary-foreground: oklch(0.34 0.08 20);
+
+  --muted: oklch(0.965 0.02 55);
+  --muted-foreground: oklch(0.52 0.05 25);
+
+  --accent: oklch(0.9 0.09 130);
+  --accent-foreground: oklch(0.32 0.07 130);
+
+  --destructive: oklch(0.577 0.245 27.325);
+
+  --border: oklch(0.9 0.03 40);
+  --input: oklch(0.9 0.03 40);
+  --ring: oklch(0.64 0.19 12);
+
+  --chart-1: oklch(0.66 0.185 12);
+  --chart-2: oklch(0.72 0.16 40);
+  --chart-3: oklch(0.78 0.14 128);
+  --chart-4: oklch(0.7 0.13 80);
+  --chart-5: oklch(0.55 0.18 4);
+
+  --sidebar: oklch(0.985 0.012 55);
+  --sidebar-foreground: oklch(0.26 0.045 18);
+  --sidebar-primary: oklch(0.64 0.19 12);
+  --sidebar-primary-foreground: oklch(0.99 0.01 60);
+  --sidebar-accent: oklch(0.9 0.09 130);
+  --sidebar-accent-foreground: oklch(0.32 0.07 130);
+  --sidebar-border: oklch(0.9 0.03 40);
+  --sidebar-ring: oklch(0.64 0.19 12);
+}
+
+.dark {
+  --guava-flesh: oklch(0.72 0.17 14);
+  --guava-rind: oklch(0.8 0.15 128);
+  --guava-seed: oklch(0.9 0.03 70);
+
+  --background: oklch(0.19 0.028 20);
+  --foreground: oklch(0.95 0.02 60);
+
+  --card: oklch(0.23 0.032 18);
+  --card-foreground: oklch(0.95 0.02 60);
+  --popover: oklch(0.23 0.032 18);
+  --popover-foreground: oklch(0.95 0.02 60);
+
+  --primary: oklch(0.72 0.18 14);
+  --primary-foreground: oklch(0.2 0.03 18);
+
+  --secondary: oklch(0.3 0.04 22);
+  --secondary-foreground: oklch(0.95 0.02 60);
+
+  --muted: oklch(0.28 0.035 20);
+  --muted-foreground: oklch(0.74 0.05 40);
+
+  --accent: oklch(0.38 0.08 130);
+  --accent-foreground: oklch(0.92 0.08 130);
+
+  --destructive: oklch(0.704 0.191 22.216);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.18 14);
+
+  --chart-1: oklch(0.72 0.17 14);
+  --chart-2: oklch(0.75 0.15 40);
+  --chart-3: oklch(0.8 0.15 128);
+  --chart-4: oklch(0.74 0.13 80);
+  --chart-5: oklch(0.62 0.19 4);
+
+  --sidebar: oklch(0.23 0.032 18);
+  --sidebar-foreground: oklch(0.95 0.02 60);
+  --sidebar-primary: oklch(0.72 0.18 14);
+  --sidebar-primary-foreground: oklch(0.2 0.03 18);
+  --sidebar-accent: oklch(0.38 0.08 130);
+  --sidebar-accent-foreground: oklch(0.92 0.08 130);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.72 0.18 14);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  /* Doto — pixel-dot display font for a few accent lines */
+  .font-doto {
+    font-family: var(--font-doto), var(--font-funnel), sans-serif;
+    font-variation-settings: "ROND" 0;
+    letter-spacing: 0.02em;
+  }
+  /* Pixelify Sans — retro pixel font for the wordmark and small tags */
+  .font-pixel {
+    font-family: var(--font-pixel), var(--font-funnel), sans-serif;
+  }
+  .guava-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .guava-radial {
+    background:
+      radial-gradient(60% 55% at 50% 0%, color-mix(in oklab, var(--guava-flesh) 22%, transparent), transparent 70%),
+      radial-gradient(40% 40% at 85% 30%, color-mix(in oklab, var(--guava-rind) 18%, transparent), transparent 70%);
+  }
+
+  /* Status LED: slow heartbeat blink */
+  .led {
+    box-shadow: 0 0 6px color-mix(in oklab, var(--guava-rind) 80%, transparent);
+    animation: led-blink 2.4s steps(1) infinite;
+  }
+
+  /* Animated pixel Octocat: whole body bobs, tentacle frames alternate */
+  .octocat-hop {
+    animation: octocat-bob 0.6s steps(2) infinite;
+  }
+  /* Roam: patrol the full navbar width and back */
+  .octocat-roam {
+    animation: octocat-roam 30s linear infinite;
+  }
+  .octocat-legs-a {
+    animation: octocat-blink-a 0.6s steps(1) infinite;
+  }
+  .octocat-legs-b {
+    animation: octocat-blink-b 0.6s steps(1) infinite;
+  }
+}
+
+@keyframes octocat-roam {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(calc(100vw - 2.5rem));
+  }
+}
+@keyframes led-blink {
+  0%,
+  87% {
+    opacity: 1;
+  }
+  88%,
+  100% {
+    opacity: 0.25;
+  }
+}
+@keyframes octocat-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes octocat-blink-a {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes octocat-blink-b {
+  0%,
+  49% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .octocat-hop,
+  .octocat-roam,
+  .octocat-legs-a,
+  .octocat-legs-b {
+    animation: none;
+  }
+  .octocat-legs-b {
+    opacity: 0;
+  }
+}
