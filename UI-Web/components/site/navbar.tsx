@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Logo } from "@/components/site/logo";
 import { Octocat } from "@/components/site/octocat";
 import { StarButton } from "@/components/site/star-button";
+import { MobileNav } from "@/components/site/mobile-nav";
 
 const links = [
   { href: "/how-it-works", label: "How it works" },
@@ -29,7 +30,10 @@ export function Navbar() {
             </Link>
           ))}
         </nav>
-        <StarButton />
+        <div className="flex items-center gap-2">
+          <StarButton />
+          <MobileNav links={links} />
+        </div>
       </div>
     </header>
   );
