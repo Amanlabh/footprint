@@ -29,7 +29,7 @@ def _text(content, cap=None):
 def parse_session(path):
     """One transcript file -> list of alternating {role, content} messages."""
     msgs = []
-    for line in open(path, errors="replace"):
+    for line in open(path, encoding="utf-8", errors="replace"):
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
@@ -49,7 +49,7 @@ def parse_session(path):
 
 
 def collect(project=None):
-    since = float(open(config.TRACE_MARK).read()) if os.path.exists(config.TRACE_MARK) else 0.0
+    since = float(open(config.TRACE_MARK, encoding="utf-8").read()) if os.path.exists(config.TRACE_MARK) else 0.0
     slug = "-" + os.path.abspath(project or os.getcwd()).strip("/").replace("/", "-").replace(".", "-")
     dirs = [os.path.join(config.PROJECTS, slug)] if os.path.isdir(os.path.join(config.PROJECTS, slug)) \
         else glob.glob(os.path.join(config.PROJECTS, "*"))
@@ -88,7 +88,7 @@ def collect(project=None):
     n_valid = max(1, len(examples) // 10)
     os.makedirs(config.DATA, exist_ok=True)
     for name, chunk in [("valid", examples[:n_valid]), ("train", examples[n_valid:])]:
-        with open(os.path.join(config.DATA, f"{name}.jsonl"), "w") as fh:
+        with open(os.path.join(config.DATA, f"{name}.jsonl"), "w", encoding="utf-8") as fh:
             for e in chunk:
                 fh.write(json.dumps(e) + "\n")
     print(f"collected {len(examples)} examples ({len(examples)-n_valid} train / {n_valid} valid, "

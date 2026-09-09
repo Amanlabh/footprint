@@ -8,7 +8,7 @@ def trace():
     """Arm tracing. Claude Code already logs every session to ~/.claude/projects;
     the marker makes collect use only sessions started after this moment."""
     os.makedirs(os.path.dirname(config.TRACE_MARK), exist_ok=True)
-    with open(config.TRACE_MARK, "w") as f:
+    with open(config.TRACE_MARK, "w", encoding="utf-8") as f:
         f.write(str(time.time()))
     print("tracing armed. chat with Claude Code as usual — those sessions become training data.\n"
           "then: footprint collect && footprint train\n"
@@ -17,14 +17,14 @@ def trace():
 
 def status():
     tr = os.path.join(config.DATA, "train.jsonl")
-    n = sum(1 for _ in open(tr)) if os.path.exists(tr) else 0
+    n = sum(1 for _ in open(tr, encoding="utf-8")) if os.path.exists(tr) else 0
     installed = os.path.exists(config.LAUNCHD) if config.IS_MAC else \
         os.path.exists(config.SYSTEMD) if not config.IS_WIN else \
         subprocess.run(["schtasks", "/Query", "/TN", "footprint-serve"],
                        capture_output=True).returncode == 0
     print(f"backend: {'mlx' if config.IS_MAC else 'torch'}\nmodel: {config.MODEL}\nexamples: {n}\n"
           f"adapter: {'yes' if config.has_adapter() else 'no'}\n"
-          f"tracing: {'armed since ' + time.ctime(float(open(config.TRACE_MARK).read())) if os.path.exists(config.TRACE_MARK) else 'off (collect uses all history)'}\n"
+          f"tracing: {'armed since ' + time.ctime(float(open(config.TRACE_MARK, encoding="utf-8").read())) if os.path.exists(config.TRACE_MARK) else 'off (collect uses all history)'}\n"
           f"server: {'auto-managed' if installed else 'not installed (run install)'}")
 
 
@@ -48,15 +48,15 @@ def setup():
 
 def _opencode():
     cfg_path = os.path.join(config.OPENCODE, "opencode.json")
-    cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {"$schema": "https://opencode.ai/config.json"}
+    cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {"$schema": "https://opencode.ai/config.json"}
     cfg.setdefault("provider", {})["footprint"] = {
         "npm": "@ai-sdk/openai-compatible", "name": "footprint",
         "options": {"baseURL": f"http://127.0.0.1:{config.PORT}/v1"},
         "models": {"footprint": {"name": "footprint"}}}
     os.makedirs(os.path.join(config.OPENCODE, "command"), exist_ok=True)
-    with open(cfg_path, "w") as f:
+    with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-    with open(os.path.join(config.OPENCODE, "command", "footprint.md"), "w") as f:
+    with open(os.path.join(config.OPENCODE, "command", "footprint.md"), "w", encoding="utf-8") as f:
         f.write("---\ndescription: do task with footprint — local model trained on your Claude sessions\n"
                 "model: footprint/footprint\n---\n$ARGUMENTS\n")
 
@@ -83,7 +83,7 @@ def install():
         how = "Task Scheduler (task: footprint-serve)"
     else:
         os.makedirs(os.path.dirname(config.SYSTEMD), exist_ok=True)
-        with open(config.SYSTEMD, "w") as f:
+        with open(config.SYSTEMD, "w", encoding="utf-8") as f:
             f.write("[Unit]\nDescription=footprint local model server\n\n"
                     f"[Service]\nExecStart={config.VENV_PY} {config.ENTRY} serve\nRestart=always\n\n"
                     "[Install]\nWantedBy=default.target\n")
