@@ -39,7 +39,7 @@ def _http(url, data=None, token=None, method=None):
 
 def _token():
     if os.path.exists(TOKEN_FILE):
-        return open(TOKEN_FILE).read().strip()
+        return open(TOKEN_FILE, encoding="utf-8").read().strip()
     sys.exit("not signed in. run: footprint login")
 
 
@@ -59,7 +59,7 @@ def login():
         if t.get("error") not in ("authorization_pending", "slow_down"):
             sys.exit(f"login failed: {t.get('error')}")
     os.makedirs(HOME, exist_ok=True)
-    with open(TOKEN_FILE, "w") as f:
+    with open(TOKEN_FILE, "w", encoding="utf-8") as f:
         f.write(t["access_token"])
     os.chmod(TOKEN_FILE, 0o600)
     login_name = _user(t["access_token"])
