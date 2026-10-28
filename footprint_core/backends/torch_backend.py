@@ -12,14 +12,32 @@ def train():
                                           "valid": os.path.join(config.DATA, "valid.jsonl")})
     trainer = SFTTrainer(
         model=config.MODEL,
-        args=SFTConfig(output_dir=config.ADAPTERS, max_steps=int(config.ITERS),
-                       per_device_train_batch_size=1, gradient_checkpointing=True,
+        args=SFTConfig(output_dir=config.ADAPTERS, max_steps=int(config.resolve_iters()),
+                       per_device_train_batch_size=config.BATCH, gradient_checkpointing=True,
                        max_length=4096, logging_steps=25, report_to=[]),
         train_dataset=ds["train"], eval_dataset=ds["valid"],
         peft_config=LoraConfig(r=8, lora_alpha=16, target_modules="all-linear"))
     trainer.train()
     trainer.save_model(config.ADAPTERS)
     print(f"adapter saved -> {config.ADAPTERS}")
+
+
+def evaluate():
+    import math
+    from datasets import load_dataset
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM
+    from trl import SFTConfig, SFTTrainer
+    if not config.has_adapter():
+        raise SystemExit("no trained adapter. run: footprint train")
+    ds = load_dataset("json", data_files={"test": config.ensure_test()})
+    base = AutoModelForCausalLM.from_pretrained(config.MODEL, torch_dtype="auto", device_map="auto")
+    model = PeftModel.from_pretrained(base, config.ADAPTERS)
+    trainer = SFTTrainer(model=model, eval_dataset=ds["test"],
+                         args=SFTConfig(output_dir=config.ADAPTERS, max_length=4096,
+                                        per_device_eval_batch_size=config.BATCH, report_to=[]))
+    loss = trainer.evaluate()["eval_loss"]
+    print(f"Test loss {loss:.3f}, Test ppl {math.exp(loss):.3f}")
 
 
 def serve():

@@ -5,11 +5,24 @@ from .. import config
 
 
 def train():
+    iters = config.resolve_iters()
+    print(f"training {iters} iters (batch {config.BATCH})")
     subprocess.run([sys.executable, "-m", "mlx_lm", "lora", "--model", config.MODEL, "--train",
                     "--data", config.DATA, "--adapter-path", config.ADAPTERS,
-                    "--iters", config.ITERS, "--max-seq-length", "4096",
-                    "--batch-size", "1", "--grad-checkpoint"], check=True)
+                    "--iters", iters, "--max-seq-length", "4096",
+                    "--batch-size", str(config.BATCH), "--grad-checkpoint"], check=True)
     print(f"adapter saved -> {config.ADAPTERS}")
+
+
+def evaluate():
+    if not config.has_adapter():
+        sys.exit("no trained adapter. run: footprint train")
+    config.ensure_test()
+    subprocess.run([sys.executable, "-m", "mlx_lm", "lora", "--model", config.MODEL,
+                    "--data", config.DATA, "--adapter-path", config.ADAPTERS,
+                    "--test", "--max-seq-length", "4096",
+                    "--test-batches", str(config.TEST_BATCHES),
+                    "--batch-size", str(config.BATCH)], check=True)
 
 
 def serve():

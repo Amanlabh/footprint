@@ -124,6 +124,7 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint trace` | arm tracing (run before starting Claude) |
 | `footprint collect [dir]` | parse transcripts of a project (default: current dir; unknown dir = all projects) |
 | `footprint train` | LoRA fine-tune on collected data |
+| `footprint eval` | test loss + perplexity of the trained adapter on held-out data (lower = better) |
 | `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
 | `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
 | `footprint status` | model, example count, adapter, tracing, server state |
@@ -133,7 +134,11 @@ Or point any OpenAI-compatible tool at the server:
 | Env var | Default | |
 |---|---|---|
 | `FOOTPRINT_MODEL` | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (mac) / `Qwen/Qwen2.5-Coder-1.5B-Instruct` | any chat model of the backend |
-| `FOOTPRINT_ITERS` | `300` | training iterations |
+| `FOOTPRINT_ITERS` | auto | training iterations (unset = `FOOTPRINT_EPOCHS` passes over the train set, capped at `FOOTPRINT_ITERS_CAP`) |
+| `FOOTPRINT_EPOCHS` | `3` | passes over the data when `FOOTPRINT_ITERS` is unset |
+| `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
+| `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
+| `FOOTPRINT_TEST_BATCHES` | `25` | batches scored by `eval` (`-1` = whole test split) |
 | `FOOTPRINT_PORT` | `8399` | server port |
 
 ## Troubleshooting

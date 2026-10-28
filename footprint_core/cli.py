@@ -5,6 +5,7 @@ Commands:
   trace                 arm tracing: sessions from now on become training data (run before chatting)
   collect [project]     parse ~/.claude/projects transcripts -> data/{train,valid}.jsonl
   train                 LoRA fine-tune base model on collected data
+  eval                  test loss + perplexity of the footprint adapter on held-out data
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
   status                what's collected/trained
@@ -26,6 +27,7 @@ def main(argv=None):
     {"collect": lambda: transcripts.collect(argv[1] if len(argv) > 1 else None),
      "trace": service.trace,
      "train": lambda: get().train(),
+     "eval": lambda: get().evaluate(),
      "serve": lambda: get().serve(),
      "install": service.install,
      "status": service.status,
