@@ -17,6 +17,6 @@ def test_opencode_command_file_is_written_as_utf8(tmp_path, monkeypatch):
 
     service._opencode()
 
-    cmd = (tmp_path / "command" / "footprint.md").read_text(encoding="utf-8")
+    cmd = (tmp_path / "commands" / "footprint.md").read_text(encoding="utf-8")
     assert "local model trained on your Claude sessions" in cmd
     assert "—" in cmd

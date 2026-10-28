@@ -138,7 +138,7 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint train` | LoRA fine-tune on collected data |
 | `footprint eval` | test loss + perplexity of the trained adapter on held-out data (lower = better) |
 | `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
-| `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook |
+| `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook; OpenCode gets `/continue` |
 | `footprint context` | preview what the next session will be handed |
 | `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
 | `footprint status` | model, example count, adapter, tracing, server state |

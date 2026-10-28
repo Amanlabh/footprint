@@ -53,10 +53,10 @@ def _opencode():
         "npm": "@ai-sdk/openai-compatible", "name": "footprint",
         "options": {"baseURL": f"http://127.0.0.1:{config.PORT}/v1"},
         "models": {"footprint": {"name": "footprint"}}}
-    os.makedirs(os.path.join(config.OPENCODE, "command"), exist_ok=True)
+    os.makedirs(os.path.join(config.OPENCODE, "commands"), exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-    with open(os.path.join(config.OPENCODE, "command", "footprint.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(config.OPENCODE, "commands", "footprint.md"), "w", encoding="utf-8") as f:
         f.write("---\ndescription: do task with footprint — local model trained on your Claude sessions\n"
                 "model: footprint/footprint\n---\n$ARGUMENTS\n")
 

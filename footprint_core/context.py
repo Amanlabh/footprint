@@ -27,7 +27,7 @@ def state(path):
     """One transcript -> dict of what a successor session needs to know."""
     s = {"title": None, "prompts": [], "files": [], "todos": None, "error": None,
          "last": None, "branch": None, "cwd": None}
-    for line in open(path, errors="replace"):
+    for line in open(path, encoding="utf-8", errors="replace"):
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
@@ -117,7 +117,7 @@ def install():
     """Register `footprint context` as a Claude Code SessionStart hook (startup + /clear)."""
     path = os.path.expanduser("~/.claude/settings.json")
     try:
-        cfg = json.load(open(path)) if os.path.exists(path) else {}
+        cfg = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
     except json.JSONDecodeError:
         sys.exit(f"{path} is not valid JSON — fix it first, not overwriting")
     cmd = f'"{sys.executable}" "{config.ENTRY}" context'
@@ -126,10 +126,17 @@ def install():
                                               for h in e.get("hooks", []))]
     starts.append({"matcher": "startup|clear", "hooks": [{"type": "command", "command": cmd}]})
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+    # ponytail: OpenCode gets a manual /continue (shell-output injection); auto needs an OpenCode plugin
+    oc = os.path.join(config.OPENCODE, "commands", "continue.md")
+    os.makedirs(os.path.dirname(oc), exist_ok=True)
+    with open(oc, "w", encoding="utf-8") as f:
+        f.write("---\ndescription: continue from your last Claude Code session in this project (footprint)\n---\n"
+                f"!`{cmd}`\n\n$ARGUMENTS\n")
     print(f"continuity on: new Claude Code sessions start with the previous session's state.\n"
-          f"  hook: SessionStart (startup|clear) in {path}\n  preview: footprint context")
+          f"  hook: SessionStart (startup|clear) in {path}\n"
+          f"  opencode: /continue [task] in {oc}\n  preview: footprint context")
 
 
 if __name__ == "__main__":  # self-check on a synthetic transcript
@@ -147,7 +154,7 @@ if __name__ == "__main__":  # self-check on a synthetic transcript
         {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "fixed, test next"}]}},
     ]
     d = tempfile.mkdtemp()
-    with open(os.path.join(d, "old.jsonl"), "w") as fh:
+    with open(os.path.join(d, "old.jsonl"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(map(json.dumps, recs)) + "\nnot json\n")
     open(os.path.join(d, "cur.jsonl"), "w").write("")
     os.utime(os.path.join(d, "old.jsonl"), (time.time() - 60,) * 2)
