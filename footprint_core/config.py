@@ -26,6 +26,8 @@ ITERS_CAP = int(os.environ.get("FOOTPRINT_ITERS_CAP", "2000"))  # ceiling so big
 TEST_BATCHES = int(os.environ.get("FOOTPRINT_TEST_BATCHES", "25"))  # eval subsample; -1 = whole test split
 CTX_BUDGET = 6000      # chars of history per training example
 RESULT_CAP = 1500      # chars kept per tool result
+CONTEXT_CAP = int(os.environ.get("FOOTPRINT_CONTEXT_CAP", "4000"))  # chars injected at session start (~1k tokens)
+CONTEXT_MAX_AGE_H = float(os.environ.get("FOOTPRINT_CONTEXT_MAX_AGE_H", "168"))  # older previous session = stale, skip
 
 SYSTEM = ("You are footprint, a local coding agent trained on Claude Code sessions. "
           "To act, emit tool calls as <tool name=\"NAME\">{json args}</tool>. "

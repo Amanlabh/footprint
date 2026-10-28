@@ -48,11 +48,15 @@ def parse_session(path):
     return msgs
 
 
+def project_dir(path):
+    """~/.claude/projects/<slug> for a working dir. Claude Code maps every non-alphanumeric char to '-'."""
+    return os.path.join(config.PROJECTS, re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(path)))
+
+
 def collect(project=None):
     since = float(open(config.TRACE_MARK, encoding="utf-8").read()) if os.path.exists(config.TRACE_MARK) else 0.0
-    slug = "-" + os.path.abspath(project or os.getcwd()).strip("/").replace("/", "-").replace(".", "-")
-    dirs = [os.path.join(config.PROJECTS, slug)] if os.path.isdir(os.path.join(config.PROJECTS, slug)) \
-        else glob.glob(os.path.join(config.PROJECTS, "*"))
+    pdir = project_dir(project or os.getcwd())
+    dirs = [pdir] if os.path.isdir(pdir) else glob.glob(os.path.join(config.PROJECTS, "*"))
     examples, seen, dupes = [], set(), 0
     for d in dirs:
         for f in glob.glob(os.path.join(d, "*.jsonl")):

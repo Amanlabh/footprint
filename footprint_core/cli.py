@@ -8,6 +8,7 @@ Commands:
   eval                  test loss + perplexity of the footprint adapter on held-out data
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
+  context [install]     previous Claude session's state for this project; install = SessionStart hook
   status                what's collected/trained
   login                 GitHub device-flow sign in (personal environment)
   key new|list|revoke   manage API keys (hashes stored in your footprint-vault repo)
@@ -15,7 +16,7 @@ Commands:
 """
 import os, sys
 
-from . import config, service, transcripts, vault
+from . import config, context, service, transcripts, vault
 from .backends import get
 
 
@@ -30,6 +31,7 @@ def main(argv=None):
      "eval": lambda: get().evaluate(),
      "serve": lambda: get().serve(),
      "install": service.install,
+     "context": lambda: context.show(argv[1:]),
      "status": service.status,
      "setup": service.setup,
      "login": vault.login,
