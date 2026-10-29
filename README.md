@@ -22,6 +22,8 @@ npm install -g footprint-trace
 footprint context install
 ```
 
+Latest from GitHub (ahead of npm): `npm install -g https://github.com/Amanlabh/footprint/tarball/main`
+
 - **Claude Code:** nothing to do — every new session (and `/clear`) starts with
   the previous session's state: goal, files touched, open todos, last error, where it ended.
 - **OpenCode:** nothing to do — a plugin gives every new session the same state.
