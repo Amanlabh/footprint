@@ -29,6 +29,7 @@ Map the user's `/footprint <arg>` to one Bash call:
 | `/footprint install` | `.venv/bin/python footprint.py install` (launchd auto-server + OpenCode `/footprint` command — user never runs serve) |
 | `/footprint context` | `python3 footprint.py context` (preview previous-session state for this project) |
 | `/footprint context install` | `python3 footprint.py context install` (SessionStart hook in `~/.claude/settings.json`: new sessions continue from the last one; OpenCode plugin auto-injects + `/continue` command; reads both Claude and OpenCode sessions) |
+| `/footprint switch` | `python3 footprint.py switch` (import latest Claude chat for this project into OpenCode with full history; prints `opencode -s <id>`) |
 | `/footprint serve` | `.venv/bin/python footprint.py serve` (manual fallback only; install makes this unnecessary) |
 
 Always run commands from `/Users/aman/Developer/footprint`.
