@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: compile all modules
-        run: python -m py_compile footprint.py footprint_core/cli.py footprint_core/config.py footprint_core/service.py footprint_core/transcripts.py footprint_core/backends/mlx_backend.py footprint_core/backends/torch_backend.py
+        run: python -m py_compile footprint.py footprint_core/cli.py footprint_core/config.py footprint_core/service.py footprint_core/transcripts.py footprint_core/context.py footprint_core/backends/mlx_backend.py footprint_core/backends/torch_backend.py
       - name: cli smoke (status + trace)
         run: |
           python footprint.py status

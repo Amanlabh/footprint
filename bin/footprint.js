@@ -15,13 +15,18 @@ if (args.length === 0) {
   require("./banner");
 }
 
-if (!fs.existsSync(venvPy)) {
-  console.log("first run — setting up (venv + model backend)…");
-  const s = spawnSync(win ? "python" : "python3", [script, "setup"], { stdio: "inherit" });
+// context/collect/status are stdlib-only: system python, no venv, no model download.
+// Only the local-model commands need the venv + backend (setup = local mode opt-in).
+const sysPy = win ? "python" : "python3";
+const needsModel = ["train", "eval", "serve", "install"].includes(args[0]);
+if (needsModel && !fs.existsSync(venvPy)) {
+  console.log("local model mode — setting up (venv + model backend, one-time)…");
+  const s = spawnSync(sysPy, [script, "setup"], { stdio: "inherit" });
   if (s.status) process.exit(s.status);
 }
 
-const r = spawnSync(venvPy, [script, ...(args.length ? args : ["status"])], {
+const py = fs.existsSync(venvPy) ? venvPy : sysPy;
+const r = spawnSync(py, [script, ...(args.length ? args : ["status"])], {
   stdio: "inherit",
 });
 process.exit(r.status === null ? 1 : r.status);

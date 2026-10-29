@@ -1,7 +1,7 @@
 {
   "name": "footprint-trace",
-  "version": "0.2.0",
-  "description": "Local SLM trained on your Claude Code sessions. When Claude quota runs out, OpenCode keeps working like Claude.",
+  "version": "0.3.0",
+  "description": "Never lose your context: continue your Claude Code session in OpenCode (or a new Claude session) right where you left off. Optional local model trained on your sessions.",
   "bin": {
     "footprint": "bin/footprint.js"
   },

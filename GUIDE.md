@@ -9,6 +9,27 @@ working in the same style — fully offline, on your machine.
 trace → chat with claude → collect → train → install → /footprint in OpenCode
 ```
 
+## Quick start — continue where you left off
+
+No model download, no training. footprint reads your Claude Code sessions and
+hands the next session (Claude Code or OpenCode) where you left off.
+
+```sh
+npm install -g footprint-trace
+footprint context install
+```
+
+- **Claude Code:** nothing to do — every new session (and `/clear`) starts with
+  the previous session's state: goal, files touched, open todos, last error, where it ended.
+- **OpenCode:** open it in the same project, pick any model (`/models`, e.g. Big Pickle),
+  type `/continue` or `/continue <next task>`.
+- Preview what gets handed over: `footprint context`
+
+## Local model mode (optional)
+
+Everything below trains and serves a small local model on your sessions —
+offline and private. Not needed for continuity above.
+
 ## Requirements
 
 | | trace / collect | train / serve |

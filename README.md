@@ -1,8 +1,9 @@
 # footprint
 
-**Your Claude, learned locally.**
+**Never lose your context.**
 
-Footprint watches your Claude Code sessions, fine-tunes a small local model
+Switch from Claude Code to OpenCode — or start a fresh Claude session — and pick
+up exactly where you left off. Optionally, footprint also fine-tunes a small local model
 (LoRA) on how *you and Claude* work in your projects, and serves it as an
 OpenAI-compatible API. When your Claude quota runs out, OpenCode (or Cursor,
 or Codex CLI) keeps working in the same style — fully offline, on your machine.
@@ -10,6 +11,27 @@ or Codex CLI) keeps working in the same style — fully offline, on your machine
 ```
 trace → chat with claude → collect → train → install → /footprint in OpenCode
 ```
+
+## Quick start — continue where you left off
+
+No model download, no training. footprint reads your Claude Code sessions and
+hands the next session (Claude Code or OpenCode) where you left off.
+
+```sh
+npm install -g footprint-trace
+footprint context install
+```
+
+- **Claude Code:** nothing to do — every new session (and `/clear`) starts with
+  the previous session's state: goal, files touched, open todos, last error, where it ended.
+- **OpenCode:** open it in the same project, pick any model (`/models`, e.g. Big Pickle),
+  type `/continue` or `/continue <next task>`.
+- Preview what gets handed over: `footprint context`
+
+## Local model mode (optional)
+
+Everything below trains and serves a small local model on your sessions —
+offline and private. Not needed for continuity above.
 
 ## How it works
 
