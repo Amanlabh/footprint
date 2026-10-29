@@ -9,7 +9,7 @@ Commands:
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
-  switch [session]      open this project's latest Claude Code chat in OpenCode (full history)
+  switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained
   login                 GitHub device-flow sign in (personal environment)
   key new|list|revoke   manage API keys (hashes stored in your footprint-vault repo)

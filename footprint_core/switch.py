@@ -4,7 +4,7 @@ The full chat (prompts, replies, tool calls + results) is converted to
 OpenCode's export format and loaded with `opencode import`, then opened with
 `opencode -s <id>` — same conversation, continue typing in OpenCode.
 """
-import glob, json, os, random, shutil, string, subprocess, sys, tempfile
+import glob, json, os, random, shutil, string, subprocess, sys, tempfile, time
 from datetime import datetime
 
 from . import config, context, transcripts
@@ -137,6 +137,14 @@ def switch(args=()):
     cwd = os.getcwd()
     pdir = transcripts.project_dir(cwd)
     files = sorted(glob.glob(os.path.join(pdir, "*.jsonl")), key=os.path.getmtime, reverse=True)
+    if args and args[0] == "list":
+        rows = [(f, context.state(f)) for f in files[:15]]  # ponytail: newest 15, parse cost grows per file
+        for f, s in rows:
+            if s["prompts"]:
+                age_h = (time.time() - os.path.getmtime(f)) / 3600
+                print(f"{os.path.basename(f)[:8]}  {age_h:6.1f}h ago  {len(s['prompts']):3d} msgs  "
+                      f"{(s['title'] or s['prompts'][0]).splitlines()[0][:60]}")
+        return print("\nopen one: footprint switch <id>   (first 8 chars are enough)")
     if args:
         files = [f for f in files if os.path.basename(f).startswith(args[0])]
     path = next((f for f in files if context.state(f)["prompts"]), None)
