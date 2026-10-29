@@ -6,7 +6,7 @@
     "footprint": "bin/footprint.js"
   },
   "scripts": {
-    "postinstall": "node bin/banner.js"
+    "postinstall": "node -e \"try{require('./bin/banner')}catch(e){}\""
   },
   "files": [
     "bin",
