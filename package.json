@@ -12,6 +12,7 @@
     "bin",
     "footprint.py",
     "footprint_core/*.py",
+    "footprint_core/*.js",
     "footprint_core/backends/*.py",
     "skills"
   ],

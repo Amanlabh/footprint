@@ -14,8 +14,8 @@ trace → chat with claude → collect → train → install → /footprint in O
 
 ## Quick start — continue where you left off
 
-No model download, no training. footprint reads your Claude Code sessions and
-hands the next session (Claude Code or OpenCode) where you left off.
+No model download, no training. footprint reads your Claude Code **and** OpenCode
+sessions and hands the next session — in either tool — where you left off.
 
 ```sh
 npm install -g footprint-trace
@@ -24,8 +24,11 @@ footprint context install
 
 - **Claude Code:** nothing to do — every new session (and `/clear`) starts with
   the previous session's state: goal, files touched, open todos, last error, where it ended.
-- **OpenCode:** open it in the same project, pick any model (`/models`, e.g. Big Pickle),
+- **OpenCode:** nothing to do — a plugin gives every new session the same state.
+  Pick any model (`/models`, e.g. Big Pickle). In a session that was already open,
   type `/continue` or `/continue <next task>`.
+- **Both ways:** switch Claude → OpenCode → Claude freely; the newest session in the
+  project (from either tool) is what gets handed over.
 - Preview what gets handed over: `footprint context`
 
 ## Local model mode (optional)
@@ -160,7 +163,7 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint train` | LoRA fine-tune on collected data |
 | `footprint eval` | test loss + perplexity of the trained adapter on held-out data (lower = better) |
 | `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
-| `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook; OpenCode gets `/continue` |
+| `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook; OpenCode via plugin (+ `/continue` for open sessions); works both ways |
 | `footprint context` | preview what the next session will be handed |
 | `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
 | `footprint status` | model, example count, adapter, tracing, server state |

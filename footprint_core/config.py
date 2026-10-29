@@ -6,6 +6,8 @@ ADAPTERS = os.path.join(ROOT, "adapters")
 PROJECTS = os.path.expanduser("~/.claude/projects")
 TRACE_MARK = os.path.expanduser("~/.claude/footprint-trace")
 OPENCODE = os.path.expanduser("~/.config/opencode")
+OPENCODE_DB = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
+                           "opencode", "opencode.db")
 LAUNCHD = os.path.expanduser("~/Library/LaunchAgents/com.footprint.serve.plist")
 SYSTEMD = os.path.expanduser("~/.config/systemd/user/footprint.service")
 
