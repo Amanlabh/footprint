@@ -124,7 +124,7 @@ export default function Home() {
           <div className="mt-12 max-w-xl">
             <CodeBlock title="install">
               <span className="text-muted-foreground">$ </span>
-              npm install -g footprint-trace
+              curl -fsSL https://www.tracefootprint.space/install.sh | sh
             </CodeBlock>
           </div>
 

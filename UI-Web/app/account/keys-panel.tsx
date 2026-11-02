@@ -31,24 +31,32 @@ export function KeysPanel({ keys }: { keys: ApiKey[] }) {
       )}
 
       {state.key && (
-        <div className="rounded-xl border border-guava-rind/60 bg-accent/40 p-4">
+        <div className="space-y-4 rounded-xl border border-guava-rind/60 bg-accent/40 p-4">
           <p className="font-pixel text-xs text-accent-foreground">
             your new key — copy it now, it is never shown again
           </p>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="overflow-x-auto rounded-lg bg-card px-3 py-2 font-mono text-sm">
-              {state.key}
-            </code>
-            <Button
-              variant="outline"
-              size="icon"
-              type="button"
-              aria-label="Copy key"
-              onClick={() => navigator.clipboard.writeText(state.key!)}
-            >
-              <Copy className="size-4" />
-            </Button>
-          </div>
+          {[
+            ["Install + sign in (paste in your terminal)", `curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- ${state.key}`],
+            ["Already installed? Just sign in", `footprint login ${state.key}`],
+          ].map(([label, text]) => (
+            <div key={label}>
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg bg-card px-3 py-2 font-mono text-sm">
+                  {text}
+                </code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  type="button"
+                  aria-label={`Copy: ${label}`}
+                  onClick={() => navigator.clipboard.writeText(text)}
+                >
+                  <Copy className="size-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

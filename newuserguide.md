@@ -8,9 +8,9 @@ How a new user goes from zero to "my AI session remembers where I left off".
 
 ## Before you start
 
-- **Node.js 18+** (gives you `npm` / `npx`)
+- **Python 3.9+** (macOS: already there, or `xcode-select --install`). No npm, no git.
 - A coding tool — any one:
-  - **OpenCode** (free): `npm i -g opencode-ai`
+  - **OpenCode** (free): `curl -fsSL https://opencode.ai/install | bash`
   - **Claude Code**, if you already pay for Claude
 
 ---
@@ -26,17 +26,17 @@ How a new user goes from zero to "my AI session remembers where I left off".
 ## Step 2 — Get your key
 
 4. Type a label (e.g. `macbook`) → **Generate API key**. ✅
-5. Copy the `fp_…` key. **Shown only once.** Lost it? Generate a new one, revoke the old. ✅
+5. The page shows a ready command with your key in it. Copy it. **Shown only once.** Lost it? Generate a new one, revoke the old. ✅
 
 ## Step 3 — Connect your machine (one command)
 
 6. In your terminal:
 
    ```sh
-   npx footprint-trace login fp_xxxxxxxx
+   curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- fp_xxxxxxxx
    ```
 
-   ✅ Key login live — verified against https://www.tracefootprint.space
+   ✅ Live. Installs into `~/.footprint/app`, puts `footprint` in `~/.local/bin`. Re-run to update.
 
    This one command:
    - saves your key in `~/.footprint/` (only you can read it)
@@ -63,14 +63,14 @@ How a new user goes from zero to "my AI session remembers where I left off".
 
    Switching tools mid-task: ✅
    - Claude ↔ OpenCode: just open the other tool — it continues.
-   - Want the exact same chat in OpenCode? `npx footprint-trace switch`
+   - Want the exact same chat in OpenCode? `footprint switch`
 
 ## Step 6 — Another laptop
 
 10. On the second machine, same command, same key (or a new one):
 
     ```sh
-    npx footprint-trace login fp_xxxxxxxx
+    curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- fp_xxxxxxxx
     ```
 
 11. Open the project → continues from where you left off on laptop 1 (handover synced through your `footprint-vault`). 🔨
@@ -81,13 +81,14 @@ How a new user goes from zero to "my AI session remembers where I left off".
 
 | Command | What it does |
 |---|---|
-| `npx footprint-trace context` | Preview what will be handed over ✅ |
-| `npx footprint-trace status` | Signed-in user, today's model usage, sync on/off 🔨 |
-| `npx footprint-trace sync off` | Keep everything on this machine (private / company code) 🔨 |
-| Website → **Revoke** | Kill a lost key; every machine using it stops 🔨 (server check) |
+| `footprint context` | Preview what will be handed over ✅ |
+| `footprint status` | Signed-in user, today's model usage, sync on/off 🔨 |
+| `footprint sync off` | Keep everything on this machine (private / company code) 🔨 |
+| Website → **Revoke** | Kill a lost key; every machine using it stops ✅ |
+| Re-run the install command | Update footprint (keeps your data) ✅ |
 
 ## If something goes wrong
 
 - **"key invalid"** — revoked or mistyped. Generate a new one on the website.
 - **"daily limit reached"** — free model cap hit. Resets tomorrow, or pick another model in OpenCode with `/models`.
-- **No handover in a new session** — run `npx footprint-trace context`. Empty output = no recent session in that project yet.
+- **No handover in a new session** — run `footprint context`. Empty output = no recent session in that project yet.

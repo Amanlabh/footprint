@@ -45,13 +45,14 @@ export default function Docs() {
         <section id="install">
           <h2 className="text-2xl font-semibold tracking-tight">Install</h2>
           <p className="mt-2 text-muted-foreground">
-            Requires Claude Code (used at least once), Python 3.9+, and Node
-            18+ if installing via npm. The backend is picked automatically —
-            MLX on Apple Silicon, PyTorch elsewhere.
+            Requires Python 3.9+ and Claude Code or OpenCode. No npm, no git.
+            Re-run to update. With your key from Account, the same command
+            signs you in: <code>… | sh -s -- fp_yourkey</code>. The backend is
+            picked automatically — MLX on Apple Silicon, PyTorch elsewhere.
           </p>
           <div className="mt-5 space-y-4">
-            <CodeBlock title="npm — macOS / Linux / Windows">
-              npm install -g footprint-trace
+            <CodeBlock title="macOS / Linux">
+              curl -fsSL https://www.tracefootprint.space/install.sh | sh
             </CodeBlock>
             <CodeBlock title="from source">
               <span className="text-muted-foreground">$ </span>git clone

@@ -85,9 +85,8 @@ export default async function Account() {
         </a>{" "}
         on your GitHub. Use the same key on another device with{" "}
         <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-          footprint login
-        </code>{" "}
-        + <code className="rounded bg-muted px-1.5 py-0.5 text-xs">footprint sync pull</code>.
+          footprint login fp_…
+        </code>.
       </p>
 
       <div className="mt-10">
