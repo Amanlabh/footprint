@@ -3,7 +3,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GithubMark } from "@/components/site/github-mark";
 import { getSession } from "@/lib/session";
-import { listKeys, VAULT_REPO, type ApiKey } from "@/lib/vault";
+import { listKeys, readBench, VAULT_REPO, type ApiKey } from "@/lib/vault";
+import { best, label, parity, type BenchRun } from "@/lib/bench";
+import { BenchReport } from "@/components/site/bench-report";
+import { CodeBlock } from "@/components/site/code-block";
+import { ShareButton } from "./share-button";
 import { KeysPanel } from "./keys-panel";
 import { SetupSteps } from "./setup-steps";
 
@@ -52,6 +56,13 @@ export default async function Account() {
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Could not load keys.";
   }
+  let runs: BenchRun[] = [];
+  try {
+    runs = await readBench(session.token, session.login);
+  } catch {
+    // bench.json unreadable: show the empty state rather than break the page
+  }
+  const latest = runs[runs.length - 1];
 
   return (
     <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:py-20">
@@ -97,6 +108,49 @@ export default async function Account() {
           <KeysPanel keys={keys} />
         )}
       </div>
+
+      <section className="mt-16 border-t border-border/60 pt-12">
+        <h2 className="text-2xl font-semibold tracking-tight">Claude parity</h2>
+        <p className="font-doto mt-2 text-foreground/80">
+          how close free models get to claude — on your own work.
+        </p>
+        <div className="mt-8">
+          {latest ? (
+            <div className="space-y-8">
+              <BenchReport run={latest} />
+              <ShareButton />
+              {runs.length > 1 && (
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight">History</h3>
+                  <ul className="mt-3 space-y-1 text-sm">
+                    {[...runs].reverse().slice(0, 10).map((r) => {
+                      const b = best(r);
+                      return (
+                        <li key={r.date} className="flex justify-between gap-4 border-b border-border/60 py-2 last:border-0">
+                          <span className="text-muted-foreground">{new Date(r.date).toLocaleDateString()} · {r.tasks} tasks</span>
+                          <span>{b ? <><code className="text-xs">{label(b)}</code> · {parity(b)}%</> : "—"}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                No results yet. Replays tasks Claude finished in your repos with any model, then
+                uploads <span className="font-medium text-foreground">scores only</span> — never prompts or code.
+              </p>
+              <CodeBlock>
+                <span className="text-muted-foreground">$ </span>footprint bench harvest{"\n"}
+                <span className="text-muted-foreground">$ </span>footprint bench run opencode/big-pickle --memory=both{"\n"}
+                <span className="text-muted-foreground">$ </span>footprint bench upload
+              </CodeBlock>
+            </div>
+          )}
+        </div>
+      </section>
 
       <SetupSteps />
     </div>

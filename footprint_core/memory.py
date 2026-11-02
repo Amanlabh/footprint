@@ -12,7 +12,7 @@ plugin adds to the conversation.
 import glob, json, math, os, re, sqlite3, sys, time
 from datetime import datetime
 
-from . import config, context, transcripts
+from . import bench, config, context, transcripts
 
 INDEX = os.path.expanduser("~/.footprint/memory.json")
 SHOWN = os.path.expanduser("~/.footprint/recall")  # per-session: task ids already injected
@@ -131,12 +131,13 @@ def build(skip_sid=None):
             raise ValueError
     except (OSError, ValueError):
         idx = {"v": VERSION, "claude": {}, "opencode": {}}
-    seen = set()
+    seen, held = set(), bench.holdout()  # bench answer key must never leak into memory
     for f in glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl")):
         seen.add(f)
         m = os.path.getmtime(f)
-        if os.path.basename(f) == f"{skip_sid}.jsonl":
-            continue  # the live session: its own tasks aren't "past" work
+        if os.path.basename(f) in (f"{skip_sid}.jsonl", *(f"{h}.jsonl" for h in held)):
+            idx["claude"].pop(f, None)
+            continue  # the live session (not "past" work) or a held-out bench session
         if idx["claude"].get(f, [0])[0] != m:
             idx["claude"][f] = [m, _slim(claude_tasks(f))]
     idx["claude"] = {f: v for f, v in idx["claude"].items() if f in seen}
@@ -224,7 +225,8 @@ def recall(args=()):
         except json.JSONDecodeError:
             return
     prompt, sid = hook.get("prompt") or "", hook.get("session_id")
-    if not prompt.strip() or context.HANDOFF_END in prompt:
+    if (os.environ.get("FOOTPRINT_MEMORY") == "off" or not prompt.strip() or context.HANDOFF_END in prompt
+            or prompt.lstrip().startswith(context.NOISE)):  # harness messages (task notifications) aren't asks
         return
     shown_f = os.path.join(SHOWN, re.sub(r"[^\w-]", "_", sid)) if sid else None
     shown = set(open(shown_f).read().split()) if shown_f and os.path.exists(shown_f) else set()

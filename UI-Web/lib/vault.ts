@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { seal, unseal, type Session } from "./session";
+import type { BenchRun } from "./bench";
 
 export const VAULT_REPO = "footprint-vault";
 const API = "https://api.github.com";
@@ -54,43 +55,52 @@ export async function ensureVault(token: string, login: string) {
     throw new Error(`Could not create vault repo: ${create.status}`);
 }
 
-async function readKeysFile(
-  token: string,
-  login: string,
-): Promise<{ keys: ApiKey[]; sha: string | null }> {
-  const res = await gh(
-    token,
-    `/repos/${login}/${VAULT_REPO}/contents/keys.json`,
-  );
-  if (res.status === 404) return { keys: [], sha: null };
-  if (!res.ok) throw new Error(`Could not read keys.json: ${res.status}`);
-  const data = (await res.json()) as { content: string; sha: string };
-  const keys = JSON.parse(
-    Buffer.from(data.content, "base64").toString("utf8"),
-  ) as ApiKey[];
-  return { keys, sha: data.sha };
+/** Read a JSON file from the user's vault repo -> { data, sha } (fallback when missing). */
+async function readJson<T>(token: string, login: string, path: string, fallback: T) {
+  const res = await gh(token, `/repos/${login}/${VAULT_REPO}/contents/${path}`);
+  if (res.status === 404) return { data: fallback, sha: null as string | null };
+  if (!res.ok) throw new Error(`Could not read ${path}: ${res.status}`);
+  const d = (await res.json()) as { content: string; sha: string };
+  return { data: JSON.parse(Buffer.from(d.content, "base64").toString("utf8")) as T, sha: d.sha as string | null };
 }
 
-async function writeKeysFile(
+async function writeJson(
   token: string,
   login: string,
-  keys: ApiKey[],
+  path: string,
+  data: unknown,
   sha: string | null,
   message: string,
 ) {
-  const res = await gh(
-    token,
-    `/repos/${login}/${VAULT_REPO}/contents/keys.json`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        message,
-        content: Buffer.from(JSON.stringify(keys, null, 2)).toString("base64"),
-        ...(sha ? { sha } : {}),
-      }),
-    },
-  );
-  if (!res.ok) throw new Error(`Could not write keys.json: ${res.status}`);
+  const res = await gh(token, `/repos/${login}/${VAULT_REPO}/contents/${path}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      message,
+      content: Buffer.from(JSON.stringify(data, null, 2)).toString("base64"),
+      ...(sha ? { sha } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`Could not write ${path}: ${res.status}`);
+}
+
+const readKeysFile = async (token: string, login: string) => {
+  const { data, sha } = await readJson<ApiKey[]>(token, login, "keys.json", []);
+  return { keys: data, sha };
+};
+const writeKeysFile = (token: string, login: string, keys: ApiKey[], sha: string | null, message: string) =>
+  writeJson(token, login, "keys.json", keys, sha, message);
+
+const BENCH_FILE = "bench.json";
+const BENCH_KEEP = 50; // ponytail: history capped in one file; split per run if it ever grows
+
+export async function readBench(token: string, login: string): Promise<BenchRun[]> {
+  return (await readJson<BenchRun[]>(token, login, BENCH_FILE, [])).data;
+}
+
+export async function appendBench(token: string, login: string, run: BenchRun) {
+  const { data, sha } = await readJson<BenchRun[]>(token, login, BENCH_FILE, []);
+  await writeJson(token, login, BENCH_FILE, [...data, run].slice(-BENCH_KEEP), sha,
+    `footprint: bench run ${run.date.slice(0, 10)} (${run.tasks} tasks)`);
 }
 
 export async function listKeys(token: string, login: string) {

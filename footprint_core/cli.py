@@ -9,6 +9,7 @@ Commands:
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
+  bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
   recall [text]         similar past tasks from all your sessions (hook: added to each prompt)
   switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained
@@ -18,7 +19,7 @@ Commands:
 """
 import os, sys
 
-from . import config, context, memory, service, switch, transcripts, vault
+from . import bench, config, context, memory, service, switch, transcripts, vault
 from .backends import get
 
 
@@ -36,6 +37,7 @@ def main(argv=None):
      "context": lambda: context.show(argv[1:]),
      "switch": lambda: switch.switch(argv[1:]),
      "recall": lambda: memory.recall(argv[1:]),
+     "bench": lambda: bench.main(argv[1:]),
      "status": service.status,
      "setup": service.setup,
      "login": lambda: vault.login(argv[1:]),

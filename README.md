@@ -37,6 +37,11 @@ Latest from GitHub (ahead of npm): `npm install -g https://github.com/Amanlabh/f
   *past* tasks from all your sessions — what you asked, files touched, commands run,
   how it ended — so any model reuses how you solved it before. No training, no GPU;
   local index at `~/.footprint/memory.json`. Try it: `footprint recall <text>`
+- **Claude parity benchmark:** `footprint bench harvest` picks tasks Claude finished in your
+  repos (ended in a commit, with a passing check); `footprint bench run <provider/model>
+  --memory=both` replays them with any model in an isolated copy and runs the same check;
+  `footprint bench upload` puts the scores (numbers only) on your tracefootprint.space profile,
+  with an opt-in public share link + README badge.
 - Preview what gets handed over: `footprint context`
 
 ## Local model mode (optional)

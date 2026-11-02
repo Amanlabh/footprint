@@ -41,6 +41,18 @@ Open issues in the website-key + curl-installer flow. Newest work: `2ac2e83` (20
 | **Provider terms** | Reselling another provider's free tier may break their terms — check first |
 | **Upstream choice** | GLM 5.3 via Ollama cloud, OpenRouter, Gemini, … — pick one |
 
+## Bench (`footprint bench`)
+
+| Gap | Notes |
+|---|---|
+| **Few qualifying tasks** | Needs Claude tasks that ran a check *and* ended in a commit; this machine had 1–2. More sessions → sharper parity |
+| **Question-style prompts** | "isn't it possible to…" — a replayed model may answer instead of editing; scored as fail |
+| **No AI judge yet** | Pass = check passes + files changed; diff-equivalence judging not built |
+| **Deps borrowed by symlink** | `node_modules`/`.venv` from the real repo; tasks needing other installs may fail |
+| **Share links can't be revoked one by one** | Stateless sealed links; rotating `SESSION_SECRET` kills all (and all API keys) |
+| **Team view** | Needs team/org accounts, which don't exist yet |
+| **OpenCode trusts `$PWD`** | Launching OpenCode from code with an inherited `PWD` makes it edit *that* directory. Bench pins `PWD` + `--dir`; anything new that spawns OpenCode must too |
+
 ## Enterprise
 
 | Gap | Notes |

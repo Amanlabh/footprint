@@ -5,15 +5,16 @@ export type Session = { token: string; login: string };
 
 const COOKIE = "fp_session";
 
-function key() {
+// purpose = separate key per use, so a share link can never be opened as an API key (and vice versa)
+function key(purpose: string) {
   const secret = process.env.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET is not set");
-  return crypto.scryptSync(secret, "footprint", 32);
+  return crypto.scryptSync(secret, purpose, 32);
 }
 
-export function seal(data: Session): string {
+export function seal(data: unknown, purpose = "footprint"): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key(), iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key(purpose), iv);
   const ct = Buffer.concat([
     cipher.update(JSON.stringify(data), "utf8"),
     cipher.final(),
@@ -21,12 +22,12 @@ export function seal(data: Session): string {
   return Buffer.concat([iv, cipher.getAuthTag(), ct]).toString("base64url");
 }
 
-export function unseal(sealed: string): Session | null {
+export function unseal<T = Session>(sealed: string, purpose = "footprint"): T | null {
   try {
     const buf = Buffer.from(sealed, "base64url");
     const decipher = crypto.createDecipheriv(
       "aes-256-gcm",
-      key(),
+      key(purpose),
       buf.subarray(0, 12),
     );
     decipher.setAuthTag(buf.subarray(12, 28));

@@ -57,11 +57,13 @@ def collect(project=None):
     since = float(open(config.TRACE_MARK, encoding="utf-8").read()) if os.path.exists(config.TRACE_MARK) else 0.0
     pdir = project_dir(project or os.getcwd())
     dirs = [pdir] if os.path.isdir(pdir) else glob.glob(os.path.join(config.PROJECTS, "*"))
+    from .bench import holdout
+    held = holdout()
     examples, seen, dupes = [], set(), 0
     for d in dirs:
         for f in glob.glob(os.path.join(d, "*.jsonl")):
-            if os.path.getmtime(f) < since:
-                continue
+            if os.path.getmtime(f) < since or os.path.basename(f)[:-6] in held:
+                continue  # held-out bench sessions never become training data
             msgs = parse_session(f)
             if len(msgs) < 2:
                 continue

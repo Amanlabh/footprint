@@ -89,6 +89,7 @@ How a new user goes from zero to "my AI session remembers where I left off".
 | `/clear` | Inside Claude Code: fresh chat that still starts with the last session's state ✅ |
 | `footprint context` | Preview what will be handed over ✅ |
 | `footprint recall <text>` | Show similar past work footprint would add for that prompt ✅ |
+| `footprint bench harvest` → `bench run <provider/model> --memory=both` → `bench upload` | How close a free model gets to Claude on *your* tasks; report on your profile ✅ |
 | `footprint status` | Signed-in user, today's model usage, sync on/off 🔨 |
 | `footprint sync off` | Keep everything on this machine (private / company code) 🔨 |
 | Website → **Revoke** | Kill a lost key; every machine using it stops ✅ |
