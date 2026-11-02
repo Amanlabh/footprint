@@ -24,7 +24,7 @@ def status():
                        capture_output=True).returncode == 0
     print(f"backend: {'mlx' if config.IS_MAC else 'torch'}\nmodel: {config.MODEL}\nexamples: {n}\n"
           f"adapter: {'yes' if config.has_adapter() else 'no'}\n"
-          f"tracing: {'armed since ' + time.ctime(float(open(config.TRACE_MARK, encoding="utf-8").read())) if os.path.exists(config.TRACE_MARK) else 'off (collect uses all history)'}\n"
+          f"tracing: {'armed since ' + time.ctime(float(open(config.TRACE_MARK, encoding='utf-8').read())) if os.path.exists(config.TRACE_MARK) else 'off (collect uses all history)'}\n"
           f"server: {'auto-managed' if installed else 'not installed (run install)'}")
 
 

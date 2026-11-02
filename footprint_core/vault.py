@@ -11,7 +11,7 @@ device shares the same context.
   footprint key revoke PREFIX  revoke by prefix
   footprint sync push|pull     sync training data + adapters via the vault
 """
-import base64, json, os, shutil, subprocess, sys, time, urllib.request
+import base64, json, os, shutil, ssl, subprocess, sys, time, urllib.request
 
 from . import config, context
 
@@ -25,6 +25,12 @@ API = os.environ.get("FOOTPRINT_API", "https://www.tracefootprint.space").rstrip
 CLIENT_ID = os.environ.get("FOOTPRINT_GITHUB_CLIENT_ID", "")
 
 
+# python.org macOS builds ship without root certs; fall back to the OS bundle.
+_SSL = ssl.create_default_context()
+if not _SSL.cert_store_stats()["x509_ca"] and os.path.exists("/etc/ssl/cert.pem"):
+    _SSL.load_verify_locations("/etc/ssl/cert.pem")
+
+
 def _http(url, data=None, token=None, method=None):
     req = urllib.request.Request(url, method=method,
                                  data=json.dumps(data).encode() if data is not None else None)
@@ -33,7 +39,7 @@ def _http(url, data=None, token=None, method=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, context=_SSL) as r:
             return r.status, json.loads(r.read() or "{}")
     except urllib.error.HTTPError as e:
         try:
