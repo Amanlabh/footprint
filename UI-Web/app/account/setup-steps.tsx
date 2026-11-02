@@ -77,6 +77,7 @@ const commandGroups: { title: string; note?: string; rows: [string, string][] }[
     title: "Local model (optional)",
     note: "Trains a small model on your own laptop — needs an Apple Silicon Mac (16GB+) or an NVIDIA GPU, and makes it hot.",
     rows: [
+      ["footprint setup", "one-time: install the local model backend (train/serve/install run it for you)"],
       ["footprint trace", "only sessions from now on become training data (run before chatting)"],
       ["footprint collect [project]", "turn your Claude sessions into training data"],
       ["footprint train", "LoRA fine-tune the local model on that data"],
