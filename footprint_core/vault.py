@@ -20,7 +20,7 @@ HOME = os.path.expanduser("~/.footprint")
 TOKEN_FILE = os.path.join(HOME, "github_token")
 KEY_FILE = os.path.join(HOME, "key")
 CLONE = os.path.join(HOME, "vault")
-API = os.environ.get("FOOTPRINT_API", "").rstrip("/")  # TODO: default to the production site once it has a domain
+API = os.environ.get("FOOTPRINT_API", "https://www.tracefootprint.space").rstrip("/")  # www: apex 308-redirects
 # footprint's public OAuth app id (device flow needs no secret); override if self-hosting
 CLIENT_ID = os.environ.get("FOOTPRINT_GITHUB_CLIENT_ID", "")
 
@@ -76,8 +76,6 @@ def login(argv=()):
 
 def key_login(key):
     """Website key -> verified by the footprint server -> saved; handover installed."""
-    if not API:
-        sys.exit("set FOOTPRINT_API to the footprint website URL")
     try:
         code, r = _http(f"{API}/api/me", token=key)
     except urllib.error.URLError as e:

@@ -17,7 +17,7 @@ How a new user goes from zero to "my AI session remembers where I left off".
 
 ## Step 1 — Create an account (1 minute)
 
-1. Open the footprint website → click **Continue with GitHub**. ✅
+1. Open https://www.tracefootprint.space/account → click **Continue with GitHub**. ✅
 2. GitHub asks permission → **Authorize**. ✅
    - footprint creates a private repo `footprint-vault` in your GitHub. Your synced sessions live there — not with us.
    - 🔨 Permission will shrink to "access to footprint-vault only" (GitHub App instead of OAuth `repo` scope).
@@ -36,7 +36,7 @@ How a new user goes from zero to "my AI session remembers where I left off".
    npx footprint-trace login fp_xxxxxxxx
    ```
 
-   ✅ Key login built (needs `FOOTPRINT_API` until the site has a production domain).
+   ✅ Key login live — verified against https://www.tracefootprint.space
 
    This one command:
    - saves your key in `~/.footprint/` (only you can read it)
