@@ -5,20 +5,22 @@ storage. No footprint server, no footprint database — keys.json holds sha256
 hashes of your API keys; data/ + adapters/ sync through the repo so every
 device shares the same context.
 
-  footprint login              GitHub device-flow sign in (one time per device)
-  footprint key new [label]    generate an API key (hash stored in the vault)
+  footprint login fp_…         sign in with the API key from the website (one time per device)
+  footprint login              GitHub device-flow sign in (sync only)
   footprint key list           list keys
   footprint key revoke PREFIX  revoke by prefix
   footprint sync push|pull     sync training data + adapters via the vault
 """
-import base64, hashlib, json, os, secrets, shutil, subprocess, sys, time, urllib.request
+import base64, json, os, shutil, subprocess, sys, time, urllib.request
 
-from . import config
+from . import config, context
 
 VAULT = "footprint-vault"
 HOME = os.path.expanduser("~/.footprint")
 TOKEN_FILE = os.path.join(HOME, "github_token")
+KEY_FILE = os.path.join(HOME, "key")
 CLONE = os.path.join(HOME, "vault")
+API = os.environ.get("FOOTPRINT_API", "").rstrip("/")  # TODO: default to the production site once it has a domain
 # footprint's public OAuth app id (device flow needs no secret); override if self-hosting
 CLIENT_ID = os.environ.get("FOOTPRINT_GITHUB_CLIENT_ID", "")
 
@@ -34,7 +36,10 @@ def _http(url, data=None, token=None, method=None):
         with urllib.request.urlopen(req) as r:
             return r.status, json.loads(r.read() or "{}")
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or "{}")
+        try:
+            return e.code, json.loads(e.read() or "{}")
+        except json.JSONDecodeError:  # HTML error page
+            return e.code, {}
 
 
 def _token():
@@ -43,7 +48,9 @@ def _token():
     sys.exit("not signed in. run: footprint login")
 
 
-def login():
+def login(argv=()):
+    if argv and argv[0].startswith("fp_"):
+        return key_login(argv[0])
     if not CLIENT_ID:
         sys.exit("set FOOTPRINT_GITHUB_CLIENT_ID (OAuth app client id with device flow enabled)")
     _, d = _http("https://github.com/login/device/code",
@@ -65,6 +72,24 @@ def login():
     login_name = _user(t["access_token"])
     _ensure_vault(t["access_token"], login_name)
     print(f"signed in as {login_name}; vault: github.com/{login_name}/{VAULT} (private)")
+
+
+def key_login(key):
+    """Website key -> verified by the footprint server -> saved; handover installed."""
+    if not API:
+        sys.exit("set FOOTPRINT_API to the footprint website URL")
+    try:
+        code, r = _http(f"{API}/api/me", token=key)
+    except urllib.error.URLError as e:
+        sys.exit(f"cannot reach {API}: {e.reason}")
+    if code != 200:
+        sys.exit(f"key rejected ({code}): {r.get('error', 'generate a new one on the website')}")
+    os.makedirs(HOME, exist_ok=True)
+    fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(key)
+    context.install()
+    print(f"signed in as {r['login']} · handover installed for Claude Code + OpenCode")
 
 
 def _user(token):
@@ -110,14 +135,8 @@ def keys_cmd(argv):
     sub = argv[0] if argv else "list"
     keys, sha = _keys_file(token, login_name)
     if sub == "new":
-        plaintext = "fp_" + base64.urlsafe_b64encode(secrets.token_bytes(24)).decode().rstrip("=")
-        keys.append({"prefix": plaintext[:11],
-                     "hash": hashlib.sha256(plaintext.encode()).hexdigest(),
-                     "label": argv[1] if len(argv) > 1 else "unnamed",
-                     "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-        _write_keys(token, login_name, keys, sha, f"footprint: add API key {plaintext[:11]}…")
-        print(f"{plaintext}\n(copy it now — only the hash is stored)")
-    elif sub == "revoke" and len(argv) > 1:
+        sys.exit("generate keys on the footprint website (Account → Generate API key)")
+    if sub == "revoke" and len(argv) > 1:
         left = [k for k in keys if not k["prefix"].startswith(argv[1])]
         if len(left) == len(keys):
             sys.exit(f"no key with prefix {argv[1]}")
@@ -127,7 +146,7 @@ def keys_cmd(argv):
         for k in keys:
             print(f"{k['prefix']}…  {k['label']:<16} {k['created']}")
         if not keys:
-            print("no keys. run: footprint key new [label]")
+            print("no keys. generate one on the footprint website")
 
 
 def _clone(token, login_name):

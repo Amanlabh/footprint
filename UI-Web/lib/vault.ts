@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { seal, unseal, type Session } from "./session";
 
 export const VAULT_REPO = "footprint-vault";
 const API = "https://api.github.com";
@@ -97,13 +98,33 @@ export async function listKeys(token: string, login: string) {
   return (await readKeysFile(token, login)).keys;
 }
 
+const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
+
+/**
+ * Key = "fp_" + sealed {token, login}: the server learns who you are from the
+ * key alone, no database. Revocation = hash removed from the user's keys.json.
+ * ponytail: one GitHub read per verify; cache it when the model gateway lands.
+ * Rotating SESSION_SECRET invalidates every key.
+ */
+export async function verifyKey(key: string): Promise<Session | null> {
+  if (!key.startsWith("fp_")) return null;
+  const s = unseal(key.slice(3));
+  if (!s) return null;
+  try {
+    const { keys } = await readKeysFile(s.token, s.login);
+    return keys.some((k) => k.hash === sha256(key)) ? s : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Generate a key, store only its hash in the vault. Returns plaintext once. */
 export async function createKey(token: string, login: string, label: string) {
   await ensureVault(token, login);
-  const plaintext = `fp_${crypto.randomBytes(24).toString("base64url")}`;
+  const plaintext = `fp_${seal({ token, login })}`;
   const entry: ApiKey = {
     prefix: plaintext.slice(0, 11),
-    hash: crypto.createHash("sha256").update(plaintext).digest("hex"),
+    hash: sha256(plaintext),
     label: label || "unnamed",
     created: new Date().toISOString(),
   };

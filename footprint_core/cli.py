@@ -11,8 +11,8 @@ Commands:
   context [install]     previous Claude session's state for this project; install = SessionStart hook
   switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained
-  login                 GitHub device-flow sign in (personal environment)
-  key new|list|revoke   manage API keys (hashes stored in your footprint-vault repo)
+  login [fp_key]        sign in with your website API key (no key = GitHub device flow)
+  key list|revoke       list/revoke API keys (generate them on the website)
   sync push|pull        sync data/ + adapters/ across devices via your vault
 """
 import os, sys
@@ -36,6 +36,6 @@ def main(argv=None):
      "switch": lambda: switch.switch(argv[1:]),
      "status": service.status,
      "setup": service.setup,
-     "login": vault.login,
+     "login": lambda: vault.login(argv[1:]),
      "key": lambda: vault.keys_cmd(argv[1:]),
      "sync": lambda: vault.sync_cmd(argv[1:])}.get(cmd, lambda: sys.exit(__doc__))()
