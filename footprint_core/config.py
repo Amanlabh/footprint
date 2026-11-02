@@ -30,6 +30,7 @@ CTX_BUDGET = 6000      # chars of history per training example
 RESULT_CAP = 1500      # chars kept per tool result
 CONTEXT_CAP = int(os.environ.get("FOOTPRINT_CONTEXT_CAP", "4000"))  # chars injected at session start (~1k tokens)
 CONTEXT_MAX_AGE_H = float(os.environ.get("FOOTPRINT_CONTEXT_MAX_AGE_H", "168"))  # older previous session = stale, skip
+MEMORY_CAP = int(os.environ.get("FOOTPRINT_MEMORY_CAP", "1500"))  # chars of similar past work injected per prompt
 
 SYSTEM = ("You are footprint, a local coding agent trained on Claude Code sessions. "
           "To act, emit tool calls as <tool name=\"NAME\">{json args}</tool>. "

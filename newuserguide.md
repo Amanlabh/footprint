@@ -61,6 +61,10 @@ How a new user goes from zero to "my AI session remembers where I left off".
    - goal, files touched, open todos
    - last error, and where you stopped
 
+   And on **every prompt**, footprint adds similar past work from *all* your sessions
+   (what you asked, files, commands, how it ended) — any model, no training. ✅
+   Try it: `footprint recall add a year limit to the date picker`
+
    Switching tools mid-task: ✅
    - Claude ↔ OpenCode: just open the other tool — it continues.
    - Want the exact same chat in OpenCode? `footprint switch`
@@ -84,6 +88,7 @@ How a new user goes from zero to "my AI session remembers where I left off".
 | `/continue [next task]` | Inside OpenCode: pull the last session's state into a chat that was already open ✅ |
 | `/clear` | Inside Claude Code: fresh chat that still starts with the last session's state ✅ |
 | `footprint context` | Preview what will be handed over ✅ |
+| `footprint recall <text>` | Show similar past work footprint would add for that prompt ✅ |
 | `footprint status` | Signed-in user, today's model usage, sync on/off 🔨 |
 | `footprint sync off` | Keep everything on this machine (private / company code) 🔨 |
 | Website → **Revoke** | Kill a lost key; every machine using it stops ✅ |

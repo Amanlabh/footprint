@@ -26,5 +26,35 @@ export const Footprint = async ({ directory }) => {
       }
       if (cache.get(id)) output.system.push(cache.get(id))
     },
+    // session memory: similar past work for this prompt, as a hidden (synthetic) part of the
+    // user's message — not the system prompt, so the prompt cache stays intact.
+    "chat.message": async (input, output) => {
+      const prompt = output.parts
+        .filter((p) => p.type === "text" && !p.synthetic)
+        .map((p) => p.text)
+        .join("\n")
+        .trim()
+      if (!prompt || !output.parts.length) return
+      const r = spawnSync(PY, [ENTRY, "recall"], {
+        input: JSON.stringify({ cwd: directory, session_id: input.sessionID, prompt }),
+        encoding: "utf-8",
+        timeout: 10000,
+      })
+      const memo = r.status === 0 ? (r.stdout || "").trim() : ""
+      if (!memo) return
+      // OpenCode ids: "prt_" + 12 ascending hex + 14 random; +1 sorts right after the user's text
+      const last = output.parts.map((p) => p.id).sort().pop()
+      const hex = (BigInt("0x" + last.slice(4, 16)) + 1n).toString(16).padStart(12, "0")
+      const abc = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+      const rand = Array.from({ length: 14 }, () => abc[Math.floor(Math.random() * 62)]).join("")
+      output.parts.push({
+        id: `prt_${hex}${rand}`,
+        sessionID: input.sessionID,
+        messageID: output.message.id,
+        type: "text",
+        text: memo,
+        synthetic: true,
+      })
+    },
   }
 }

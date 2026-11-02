@@ -33,6 +33,10 @@ Latest from GitHub (ahead of npm): `npm install -g https://github.com/Amanlabh/f
   project (from either tool) is what gets handed over.
 - **Want the exact same chat in OpenCode?** `footprint switch` imports your latest
   Claude Code conversation into OpenCode (every message and tool call) and opens it.
+- **Session memory:** every prompt (Claude Code and OpenCode) also gets the closest
+  *past* tasks from all your sessions — what you asked, files touched, commands run,
+  how it ended — so any model reuses how you solved it before. No training, no GPU;
+  local index at `~/.footprint/memory.json`. Try it: `footprint recall <text>`
 - Preview what gets handed over: `footprint context`
 
 ## Local model mode (optional)

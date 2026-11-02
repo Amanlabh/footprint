@@ -40,6 +40,7 @@ const commands: [string, string][] = [
   ["/continue [next task]", "inside OpenCode: pull in the last session's state into a chat that was already open"],
   ["/clear", "inside Claude Code: fresh chat that still starts with the last session's state"],
   ["footprint context", "preview what the next session will be handed"],
+  ["footprint recall <text>", "similar past work footprint adds to a prompt like that"],
   ["footprint switch", "open your latest Claude Code chat in OpenCode, full history"],
   ["footprint status", "what's installed and signed in"],
   ["footprint login fp_…", "sign in again with a new key"],

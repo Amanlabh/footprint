@@ -13,6 +13,8 @@ from . import config, transcripts
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "edit", "write"}
 DONE = {"completed", "cancelled"}
+NOISE = ("<command-", "<task-notification>", "<local-command-", "<bash-",  # harness messages, not asks
+         "# Similar past work (footprint memory")  # our own recall output: never index it as a task
 HANDOFF_END = "Continue from here if the user's next request relates; don't re-ask what's above."
 PLUGIN_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
 
@@ -41,7 +43,7 @@ def _prompt(rec):
     if isinstance(c, list) and any(b.get("type") == "tool_result" for b in c):
         return None
     t = _strip_handoff(transcripts._text(c))
-    return None if not t or t.startswith("<command-") else t
+    return None if not t or t.startswith(NOISE) else t
 
 
 def state(path):
@@ -189,17 +191,19 @@ def show(args=()):
 
 
 def install():
-    """Claude Code SessionStart hook + OpenCode plugin (auto) + /continue command (manual)."""
+    """Claude Code SessionStart + UserPromptSubmit hooks, OpenCode plugin (auto), /continue command (manual)."""
     path = os.path.expanduser("~/.claude/settings.json")
     try:
         cfg = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
     except json.JSONDecodeError:
         sys.exit(f"{path} is not valid JSON — fix it first, not overwriting")
     cmd = f'"{sys.executable}" "{config.ENTRY}" context'
-    starts = cfg.setdefault("hooks", {}).setdefault("SessionStart", [])
-    starts[:] = [e for e in starts if not any("footprint.py\" context" in h.get("command", "")
-                                              for h in e.get("hooks", []))]
-    starts.append({"matcher": "startup|clear", "hooks": [{"type": "command", "command": cmd}]})
+    for event, sub, entry in (("SessionStart", "context", {"matcher": "startup|clear"}),
+                              ("UserPromptSubmit", "recall", {})):  # recall = session memory per prompt
+        hooks = cfg.setdefault("hooks", {}).setdefault(event, [])
+        hooks[:] = [e for e in hooks if not any(f'footprint.py" {sub}' in h.get("command", "")
+                                                for h in e.get("hooks", []))]
+        hooks.append({**entry, "hooks": [{"type": "command", "command": f'"{sys.executable}" "{config.ENTRY}" {sub}'}]})
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
@@ -213,11 +217,14 @@ def install():
     with open(oc, "w", encoding="utf-8") as f:
         f.write("---\ndescription: continue from your last session in this project, Claude Code or OpenCode (footprint)\n---\n"
                 f"!`{cmd}`\n\n$ARGUMENTS\n")
+    from . import memory
+    n = len(memory.build())  # first index now, so the first prompt isn't slow
     print(f"continuity on — new sessions start where the last one (Claude Code or OpenCode) left off.\n"
-          f"  claude code: SessionStart hook (startup|clear) in {path}\n"
+          f"memory on — each prompt gets similar past work from {n} indexed tasks.\n"
+          f"  claude code: SessionStart + UserPromptSubmit hooks in {path}\n"
           f"  opencode:    auto via plugin {plugin}\n"
           f"               /continue [task] for sessions already open ({oc})\n"
-          f"  preview:     footprint context")
+          f"  preview:     footprint context · footprint recall <text>")
 
 
 if __name__ == "__main__":  # self-check on a synthetic Claude transcript + OpenCode db
