@@ -39,9 +39,8 @@ TEMP_PATH = re.compile(r"'/(?:var|private|tmp)/[^']*'|/(?:var|private|tmp)/\S+")
 def _words(t):
     # ponytail: plural-strip only; a real stemmer/embeddings if recall misses word forms
     t = TEMP_PATH.sub(" ", t or "")
-    ws = (w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
-          for w in re.findall(r"[a-z0-9_]{2,}", t.lower()))
-    return [w for w in ws if w not in STOP]
+    return [w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+            for w in re.findall(r"[a-z0-9_]{2,}", t.lower()) if w not in STOP]  # stop check before strip ("this")
 
 
 def _task(src, sid, cwd, ts, prompt):
