@@ -81,6 +81,8 @@ How a new user goes from zero to "my AI session remembers where I left off".
 
 | Command | What it does |
 |---|---|
+| `/continue [next task]` | Inside OpenCode: pull the last session's state into a chat that was already open ✅ |
+| `/clear` | Inside Claude Code: fresh chat that still starts with the last session's state ✅ |
 | `footprint context` | Preview what will be handed over ✅ |
 | `footprint status` | Signed-in user, today's model usage, sync on/off 🔨 |
 | `footprint sync off` | Keep everything on this machine (private / company code) 🔨 |
