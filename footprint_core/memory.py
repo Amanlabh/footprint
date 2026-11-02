@@ -33,10 +33,14 @@ def _redact(t):
     return SECRET.sub("[redacted]", t or "")
 
 
+TEMP_PATH = re.compile(r"'/(?:var|private|tmp)/[^']*'|/(?:var|private|tmp)/\S+")  # pasted screenshots etc.
+
+
 def _words(t):
     # ponytail: plural-strip only; a real stemmer/embeddings if recall misses word forms
+    t = TEMP_PATH.sub(" ", t or "")
     ws = (w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
-          for w in re.findall(r"[a-z0-9_]{2,}", (t or "").lower()))
+          for w in re.findall(r"[a-z0-9_]{2,}", t.lower()))
     return [w for w in ws if w not in STOP]
 
 
@@ -257,6 +261,8 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     hits = search("change the year range in the date picker", ts + filler, "/p/app")
     assert hits and hits[0][1]["prompt"].startswith("limit the date picker"), hits
     assert not search("ok push it", ts + filler)                       # too few meaningful words
+    shot = "'/var/folders/v_/x/T/TemporaryItems/NSIRD_screencaptureui_ab/Screenshot 2026-11-02 at 4.03.45 PM.png'"
+    assert _words(shot) == [] and _words(f"fix this {shot} date picker") == ["date", "picker"]  # temp paths ignored
     assert not search("date picker years", ts + filler, exclude_sid="s1")  # current session excluded
     assert "dob-picker.tsx" in render(hits) and "asked:" in render(hits)
     print("memory self-check ok")
