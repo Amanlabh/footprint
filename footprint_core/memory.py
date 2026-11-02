@@ -23,7 +23,9 @@ MIN_TERMS = 2         # need at least this many shared meaningful words
 STOP = set("""a an and are as at be but by can do does for from get got has have how i if in into is it its
 just let lets like make me my need no not now of on or our please so some that the then there this to
 up us use using want was we what when where which why will with would you your yes ok okay also all any
-should could thing things right file files code add fix""".split())
+should could thing things right file files code add fix
+show list best possible suggest based help user users their them they one some any okay cool great tell
+explain give know think way work working still really something new make made did done see look""".split())
 SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|fp_[A-Za-z0-9_-]{20,}"
                     r"|AKIA[0-9A-Z]{16}|xox[abpr]-[\w-]{10,}|eyJ[\w-]{20,}\.[\w-]{10,}\.[\w-]{10,}"
                     r"|(?i:(?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)\S+)")
