@@ -4,35 +4,83 @@ const INSTALL = "curl -fsSL https://www.tracefootprint.space/install.sh | sh -s 
 
 const $ = <span className="text-muted-foreground">$ </span>;
 
-const steps: { title: string; body: React.ReactNode; code?: React.ReactNode }[] = [
+// First-time user path, in order. Required steps first; optional ones are marked.
+const steps: { title: string; body: React.ReactNode; code?: React.ReactNode; optional?: boolean }[] = [
+  {
+    title: "Check you have Python 3",
+    body: "footprint needs nothing else — no npm, no git. macOS / Linux for now (Windows coming). If this prints a version, you're set; on macOS without it, run xcode-select --install.",
+    code: <>{$}python3 --version</>,
+  },
   {
     title: "Generate your key",
-    body: "Type a label (e.g. macbook) and click Generate API key above. The key is shown once, with the install command already filled in. Copy it.",
+    body: "Above: type a label (e.g. macbook) → Generate API key. It is shown once, with the install command already filled in. Copy that command.",
   },
   {
     title: "Install + sign in",
-    body: "Paste it in your terminal. Needs Python 3 (macOS: run xcode-select --install if missing). No npm, no git.",
+    body: "Paste the copied command in your terminal. It installs footprint, signs you in, and hooks into Claude Code and OpenCode.",
     code: <>{$}{INSTALL}</>,
   },
   {
-    title: "Open a new terminal",
-    body: "So the footprint command is on your PATH. Check it:",
-    code: <>{$}footprint status</>,
+    title: "Open a new terminal and check it works",
+    body: "A new terminal picks up the footprint command. This prints your last session in this folder — or \"no previous session\", which is fine on day one.",
+    code: <>{$}footprint context</>,
   },
   {
-    title: "Get a coding tool (if you don't have one)",
-    body: "OpenCode is free. Claude Code works too.",
+    title: "Get OpenCode (your free fallback)",
+    body: "Free coding agent with free models (Big Pickle). Skip if you already have it.",
     code: <>{$}curl -fsSL https://opencode.ai/install | bash</>,
   },
   {
-    title: "Work in any project",
-    body: "Your next session in the same project starts where the last one left off — goal, files, todos, last error. Switch between Claude Code and OpenCode freely.",
+    title: "Work in Claude Code as usual",
+    body: "Nothing to change. footprint quietly remembers each session: goal, files, todos, last error, how tasks were solved.",
+    code: (
+      <>
+        {$}cd my-project{"\n"}
+        {$}claude
+      </>
+    ),
+  },
+  {
+    title: "Claude ran out? Open OpenCode in the same project",
+    body: "The new session already knows where you stopped, and every prompt gets your similar past work — any model. Pick a model with /models (Big Pickle is free). Chat already open? Type /continue.",
     code: (
       <>
         {$}cd my-project{"\n"}
         {$}opencode
       </>
     ),
+  },
+  {
+    title: "Want the exact same chat instead?",
+    body: "Moves your whole Claude Code conversation into OpenCode, message by message.",
+    code: <>{$}footprint switch</>,
+    optional: true,
+  },
+  {
+    title: "Measure which free model works best for you",
+    body: "Replays tasks Claude finished in your repos with any model and scores them. Scores (numbers only) appear in Claude parity above; share them with a public link + badge if you like.",
+    code: (
+      <>
+        {$}footprint bench harvest{"\n"}
+        {$}footprint bench run opencode/big-pickle --memory=both{"\n"}
+        {$}footprint bench upload
+      </>
+    ),
+    optional: true,
+  },
+  {
+    title: "Train a local model on your sessions",
+    body: "Advanced: an offline model in your style. Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU) and heats it up. Run trace first, work for a while, then the rest.",
+    code: (
+      <>
+        {$}footprint trace{"\n"}
+        {$}footprint collect{"\n"}
+        {$}footprint train{"\n"}
+        {$}footprint eval{"\n"}
+        {$}footprint install
+      </>
+    ),
+    optional: true,
   },
 ];
 
@@ -93,13 +141,18 @@ export function SetupSteps() {
   return (
     <section className="mt-16 border-t border-border/60 pt-12">
       <h2 className="text-2xl font-semibold tracking-tight">Get started</h2>
-      <p className="font-doto mt-2 text-foreground/80">two minutes, one command.</p>
+      <p className="font-doto mt-2 text-foreground/80">first time? follow these in order — steps 1–7 take two minutes.</p>
 
       <ol className="mt-8 space-y-8">
         {steps.map((s, i) => (
           <li key={s.title}>
             <p className="font-medium">
               {i + 1}. {s.title}
+              {s.optional && (
+                <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle font-pixel text-[10px] text-muted-foreground">
+                  optional
+                </span>
+              )}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
             {s.code && <CodeBlock className="mt-3">{s.code}</CodeBlock>}
@@ -130,6 +183,10 @@ export function SetupSteps() {
       </div>
 
       <ul className="mt-8 space-y-2 text-sm text-muted-foreground">
+        <li>
+          <span className="font-medium text-foreground">“footprint: command not found”?</span> Open a
+          new terminal (step 4).
+        </li>
         <li>
           <span className="font-medium text-foreground">Another device?</span> Run the same
           install command there — same key or a new one.

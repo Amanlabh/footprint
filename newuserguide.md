@@ -1,102 +1,135 @@
 # footprint — New User Guide
 
-How a new user goes from zero to "my AI session remembers where I left off".
+Claude ran out? Keep going on a free model that already knows what you were doing.
+Same steps as **Get started** on https://www.tracefootprint.space/account.
 
-> Planned flow. ✅ = works today · 🔨 = still to build
-
----
-
-## Before you start
-
-- **Python 3.9+** (macOS: already there, or `xcode-select --install`). No npm, no git.
-- A coding tool — any one:
-  - **OpenCode** (free): `curl -fsSL https://opencode.ai/install | bash`
-  - **Claude Code**, if you already pay for Claude
+Steps 1–7 are required (about two minutes). 8–10 are optional.
 
 ---
 
-## Step 1 — Create an account (1 minute)
+## 1. Check you have Python 3
 
-1. Open https://www.tracefootprint.space/account → click **Continue with GitHub**. ✅
-2. GitHub asks permission → **Authorize**. ✅
-   - footprint creates a private repo `footprint-vault` in your GitHub. Your synced sessions live there — not with us.
-   - 🔨 Permission will shrink to "access to footprint-vault only" (GitHub App instead of OAuth `repo` scope).
-3. You land on the **API keys** page. ✅
+```sh
+python3 --version
+```
 
-## Step 2 — Get your key
+Nothing else needed — no npm, no git. macOS / Linux for now (Windows coming).
+No Python on macOS? `xcode-select --install`.
 
-4. Type a label (e.g. `macbook`) → **Generate API key**. ✅
-5. The page shows a ready command with your key in it. Copy it. **Shown only once.** Lost it? Generate a new one, revoke the old. ✅
+## 2. Generate your key
 
-## Step 3 — Connect your machine (one command)
+1. Open https://www.tracefootprint.space/account → **Continue with GitHub** → **Authorize**.
+   (footprint creates a private `footprint-vault` repo in your GitHub — your data lives there, not with us.)
+2. Type a label (e.g. `macbook`) → **Generate API key**.
+3. The key is shown **once**, with the install command already filled in. Copy that command.
 
-6. In your terminal:
+## 3. Install + sign in
 
-   ```sh
-   curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- fp_xxxxxxxx
-   ```
+Paste the copied command in your terminal:
 
-   ✅ Live. Installs into `~/.footprint/app`, puts `footprint` in `~/.local/bin`. Re-run to update.
+```sh
+curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- fp_yourkey
+```
 
-   This one command:
-   - saves your key in `~/.footprint/` (only you can read it)
-   - installs the handover into Claude Code and OpenCode
-   - adds a **footprint** model provider to OpenCode — no model setup needed 🔨
-   - prints: `signed in as <you> · context sync on · model: footprint/glm-5.3`
+Installs footprint into `~/.footprint/app`, signs you in, and hooks into Claude Code and OpenCode.
 
-## Step 4 — Start working
+## 4. Open a new terminal and check it works
 
-7. Open any project and start your tool:
+```sh
+footprint context
+```
 
-   ```sh
-   cd my-project
-   opencode
-   ```
+Prints your last session in this folder — or "no previous session", which is fine on day one.
 
-8. Work normally. First session has nothing to hand over yet.
+## 5. Get OpenCode (your free fallback)
 
-## Step 5 — Come back later: footprint takes over
+```sh
+curl -fsSL https://opencode.ai/install | bash
+```
 
-9. Next time you open OpenCode or Claude Code in that project, the new session already knows:
-   - goal, files touched, open todos
-   - last error, and where you stopped
+Free coding agent with free models (Big Pickle). Skip if you have it.
 
-   And on **every prompt**, footprint adds similar past work from *all* your sessions
-   (what you asked, files, commands, how it ended) — any model, no training. ✅
-   Try it: `footprint recall add a year limit to the date picker`
+## 6. Work in Claude Code as usual
 
-   Switching tools mid-task: ✅
-   - Claude ↔ OpenCode: just open the other tool — it continues.
-   - Want the exact same chat in OpenCode? `footprint switch`
+```sh
+cd my-project
+claude
+```
 
-## Step 6 — Another laptop
+Nothing to change. footprint remembers each session: goal, files, todos, last error, how tasks were solved.
 
-10. On the second machine, same command, same key (or a new one):
+## 7. Claude ran out? Open OpenCode in the same project
 
-    ```sh
-    curl -fsSL https://www.tracefootprint.space/install.sh | sh -s -- fp_xxxxxxxx
-    ```
+```sh
+cd my-project
+opencode
+```
 
-11. Open the project → continues from where you left off on laptop 1 (handover synced through your `footprint-vault`). 🔨
+- The new session already knows where you stopped.
+- Every prompt also gets your **similar past work** from all your sessions — any model.
+- Pick a model with `/models` (Big Pickle is free).
+- Chat already open? Type `/continue`.
 
 ---
 
-## Everyday commands
+## 8. (Optional) Want the exact same chat instead?
+
+```sh
+footprint switch
+```
+
+Moves your whole Claude Code conversation into OpenCode, message by message.
+`footprint switch list` shows session ids; `footprint switch <id>` opens a specific one.
+
+## 9. (Optional) Measure which free model works best for you
+
+```sh
+footprint bench harvest
+footprint bench run opencode/big-pickle --memory=both
+footprint bench upload
+```
+
+Replays tasks Claude finished in your repos with any model and scores them.
+Scores (numbers only — never prompts or code) appear under **Claude parity** on your account,
+where you can create a public share link + README badge.
+
+## 10. (Optional, advanced) Train a local model on your sessions
+
+Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU) — it heats the laptop.
+
+```sh
+footprint trace      # first: only sessions from now on become training data
+# …work for a while…
+footprint collect
+footprint train
+footprint eval
+footprint install    # keeps it running; shows up in OpenCode as "footprint"
+```
+
+---
+
+## All commands
 
 | Command | What it does |
 |---|---|
-| `/continue [next task]` | Inside OpenCode: pull the last session's state into a chat that was already open ✅ |
-| `/clear` | Inside Claude Code: fresh chat that still starts with the last session's state ✅ |
-| `footprint context` | Preview what will be handed over ✅ |
-| `footprint recall <text>` | Show similar past work footprint would add for that prompt ✅ |
-| `footprint bench harvest` → `bench run <provider/model> --memory=both` → `bench upload` | How close a free model gets to Claude on *your* tasks; report on your profile ✅ |
-| `footprint status` | Signed-in user, today's model usage, sync on/off 🔨 |
-| `footprint sync off` | Keep everything on this machine (private / company code) 🔨 |
-| Website → **Revoke** | Kill a lost key; every machine using it stops ✅ |
-| Re-run the install command | Update footprint (keeps your data) ✅ |
+| `/continue [next task]` | Inside OpenCode: pull the last session's state into a chat that was already open |
+| `/clear` | Inside Claude Code: fresh chat that still starts with the last session's state |
+| `footprint login fp_…` | Sign in on this device |
+| re-run the install command | Update footprint (your data is kept) |
+| `footprint context` | Preview what the next session will be handed |
+| `footprint context install` | (Re)install the Claude Code hooks + OpenCode plugin |
+| `footprint recall <text>` | Similar past work footprint adds to a prompt like that |
+| `footprint switch [list \| <id>]` | Open a Claude Code chat in OpenCode, full history |
+| `footprint bench harvest [n]` | Pick tasks Claude finished as the answer key |
+| `footprint bench run <provider/model>… --memory=both` | Replay them with any model |
+| `footprint bench` / `bench upload` | Show the report / send scores to your account |
+| `footprint setup` | One-time local model backend install (runs automatically) |
+| `footprint trace` · `collect` · `train` · `eval` | Local model: arm tracing, build data, train, test |
+| `footprint install` · `serve` · `status` | Local model: keep running, run by hand, show state |
 
 ## If something goes wrong
 
-- **"key invalid"** — revoked or mistyped. Generate a new one on the website.
-- **"daily limit reached"** — free model cap hit. Resets tomorrow, or pick another model in OpenCode with `/models`.
-- **No handover in a new session** — run `footprint context`. Empty output = no recent session in that project yet.
+- **`footprint: command not found`** — open a new terminal (step 4).
+- **"key rejected"** — revoked, mistyped, or made before 2 Nov 2026. Generate a new one on the account page.
+- **No handover in a new session** — run `footprint context` in that folder. "No previous session" = nothing recent there yet.
+- **Lost a key** — Revoke it on the account page; every machine using it stops.
