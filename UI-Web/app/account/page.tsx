@@ -5,6 +5,7 @@ import { GithubMark } from "@/components/site/github-mark";
 import { getSession } from "@/lib/session";
 import { listKeys, VAULT_REPO, type ApiKey } from "@/lib/vault";
 import { KeysPanel } from "./keys-panel";
+import { SetupSteps } from "./setup-steps";
 
 export const metadata: Metadata = {
   title: "Account — footprint",
@@ -96,6 +97,8 @@ export default async function Account() {
           <KeysPanel keys={keys} />
         )}
       </div>
+
+      <SetupSteps />
     </div>
   );
 }
