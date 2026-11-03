@@ -49,8 +49,15 @@ case ":$PATH:" in
     ;;
 esac
 
+# Handover + memory work without a key, so they install first; the key is only for account features.
 if [ $# -gt 0 ]; then
-  "$BIN/footprint" login "$1"
+  "$BIN/footprint" login "$1" || {
+    echo
+    echo "footprint is installed and the handover works — but sign-in failed."
+    echo "Generate a new key at https://www.tracefootprint.space/account, then run: footprint login fp_…"
+    "$BIN/footprint" context install >/dev/null
+    exit 0
+  }
 else
   "$BIN/footprint" context install
   echo "installed. sign in: footprint login fp_yourkey (key from https://www.tracefootprint.space/account)"
