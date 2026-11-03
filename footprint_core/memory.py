@@ -28,7 +28,11 @@ show list best possible suggest based help user users their them they one some a
 explain give know think way work working still really something new make made did done see look""".split())
 SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|fp_[A-Za-z0-9_-]{20,}"
                     r"|AKIA[0-9A-Z]{16}|xox[abpr]-[\w-]{10,}|eyJ[\w-]{20,}\.[\w-]{10,}\.[\w-]{10,}"
-                    r"|(?i:(?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)\S+)")
+                    r"|(?i:(?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)\S+"
+                    # env-style: CMS_ADMIN_PASSWORD_HASH=…, GITHUB_CLIENT_SECRET=…, DATABASE_URL=…
+                    r"|\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|PWD|API_?KEY|PRIVATE_KEY|CLIENT_ID|_KEY|DATABASE_URL|DSN)"
+                    r"[A-Z0-9_]*\s*=\s*\S+"
+                    r"|\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^@\s]+@)")  # user:password@ in any URL
 
 
 def _redact(t):
@@ -248,6 +252,12 @@ def recall(args=()):
 if __name__ == "__main__":  # self-check: redaction, task split, ranking, threshold
     assert "[redacted]" in _redact("export OPENAI_API_KEY=sk-abcdefghijklmnopqrstu") and "sk-" not in _redact("sk-abcdefghijklmnopqrstuvwx")
     assert _redact("token: hunter2") == "[redacted]" and _redact("plain text") == "plain text"
+    for leak, secret in (("APP_ADMIN_PASSWORD_HASH=deadbeef0000:1111", "deadbeef"),
+                         ("APP_GITHUB_CLIENT_ID=FAKEclientid0000", "FAKEclient"), ("GITHUB_CLIENT_SECRET=abc123", "abc123"),
+                         ("DATABASE_URL=postgresql://u:pw@host/db", "pw@"), ("STRIPE_SECRET_KEY=x9q8", "x9q8"),
+                         ("see postgresql://user:hunter2@db.neon.tech/main", "hunter2")):
+        assert "[redacted]" in _redact(leak) and secret not in _redact(leak), _redact(leak)
+    assert _redact("PUBLIC_URL=http://localhost:3001 KEYBOARD layout") == "PUBLIC_URL=http://localhost:3001 KEYBOARD layout"
     import tempfile
     d = tempfile.mkdtemp()
     p = os.path.join(d, "s1.jsonl")
