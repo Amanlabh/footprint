@@ -147,6 +147,9 @@ def build(skip_sid=None):
             try:
                 for sid, cwd, upd in db.execute("select id, directory, time_updated from session "
                                                 "where parent_id is null and time_archived is null"):
+                    if os.path.basename(cwd or "").startswith("fp-bench-"):
+                        idx["opencode"].pop(sid, None)  # bench replays are tests, not your work
+                        continue
                     if sid != skip_sid and idx["opencode"].get(sid, [0])[0] != upd:
                         idx["opencode"][sid] = [upd, _slim(opencode_tasks(db, sid, cwd))]
             finally:
