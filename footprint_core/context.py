@@ -183,6 +183,11 @@ def show(args=()):
             pass
     tp = hook.get("transcript_path")
     cwd = hook.get("cwd") or os.getcwd()
+    from . import memory
+    prefs = "" if os.environ.get("FOOTPRINT_MEMORY") == "off" else \
+        memory.render_facts(memory.facts(memory.build(skip_sid=hook.get("session_id")), cwd))
+    if prefs:
+        print(prefs + "\n")  # standing preferences first: they apply whatever the next task is
     found = previous(cwd, hook.get("session_id"), os.path.dirname(tp) if tp else None)
     if found:
         print(render(*found))

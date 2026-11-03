@@ -171,8 +171,10 @@ def sync_cmd(argv):
     login_name = _user(token)
     _ensure_vault(token, login_name)
     _clone(token, login_name)
-    pairs = [(config.DATA, os.path.join(CLONE, "data")),
-             (config.ADAPTERS, os.path.join(CLONE, "adapters"))]
+    # training data is your code + conversations: it stays on this machine unless you opt in
+    pairs = [(config.ADAPTERS, os.path.join(CLONE, "adapters"))]
+    if "--with-data" in argv:
+        pairs.append((config.DATA, os.path.join(CLONE, "data")))
     if direction == "push":
         for src, dst in pairs:
             if os.path.isdir(src):

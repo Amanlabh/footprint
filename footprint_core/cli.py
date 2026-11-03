@@ -3,7 +3,7 @@
 Commands:
   setup                 create .venv + install the platform backend (mlx / torch)
   trace                 arm tracing: sessions from now on become training data (run before chatting)
-  collect [project]     parse ~/.claude/projects transcripts -> data/{train,valid}.jsonl
+  collect [project]     curated training data: accepted turns only, redacted, split by session -> data/{train,valid,test}.jsonl
   train                 LoRA fine-tune base model on collected data
   eval                  test loss + perplexity of the footprint adapter on held-out data
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
@@ -11,11 +11,12 @@ Commands:
   context [install]     previous Claude session's state for this project; install = SessionStart hook
   bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
   recall [text]         similar past tasks from all your sessions (hook: added to each prompt)
+  facts [--all]         structured memory: your stated preferences as JSON (hook: added at session start)
   switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained
   login [fp_key]        sign in with your website API key (no key = GitHub device flow)
   key list|revoke       list/revoke API keys (generate them on the website)
-  sync push|pull        sync data/ + adapters/ across devices via your vault
+  sync push|pull [--with-data]  sync adapters/ (and, only if asked, training data/) via your vault
 """
 import os, sys
 
@@ -37,6 +38,7 @@ def main(argv=None):
      "context": lambda: context.show(argv[1:]),
      "switch": lambda: switch.switch(argv[1:]),
      "recall": lambda: memory.recall(argv[1:]),
+     "facts": lambda: memory.facts_cmd(argv[1:]),
      "bench": lambda: bench.main(argv[1:]),
      "status": service.status,
      "setup": service.setup,

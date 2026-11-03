@@ -35,3 +35,14 @@ def test_parse_session_does_not_depend_on_locale_encoding(tmp_path, monkeypatch)
     msgs = transcripts.parse_session(path)
 
     assert msgs == [{"role": "user", "content": NON_ASCII}]
+
+
+def test_rejected_marks_corrected_and_interrupted_tasks():
+    u = lambda t: {"role": "user", "content": t}
+    a = lambda t: {"role": "assistant", "content": t}
+    msgs = [u("add login"), a("used email auth"),            # task 1: user pushes back next -> rejected
+            u("no, use github oauth"), a('<tool name="Edit">{}</tool>'),
+            u("<tool_result>ok</tool_result>"), a("done"),   # task 2: user moves on -> accepted
+            u("now add tests"), a("<tool>"),                 # task 3: interrupted -> rejected
+            u("<tool_result>x</tool_result>\n[Request interrupted by user]")]
+    assert transcripts.rejected(msgs) == [True, True, False, False, False, False, True, True, True]

@@ -9,14 +9,14 @@ plugin adds to the conversation.
 
   footprint recall "add a year limit to the date picker"   # try it by hand
 """
-import glob, json, math, os, re, sqlite3, sys, time
+import glob, hashlib, json, math, os, re, sqlite3, sys, time
 from datetime import datetime
 
 from . import bench, config, context, transcripts
 
 INDEX = os.path.expanduser("~/.footprint/memory.json")
 SHOWN = os.path.expanduser("~/.footprint/recall")  # per-session: task ids already injected
-VERSION = 1
+VERSION = 2           # 2: tasks carry "corrected" (the user's pushback on them)
 TOP_K = 3
 MIN_SCORE = 4.0       # ponytail: fixed BM25 cutoff; tune on real prompts or switch to embeddings if recall is weak
 MIN_TERMS = 2         # need at least this many shared meaningful words
@@ -37,6 +37,23 @@ SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_p
 
 def _redact(t):
     return SECRET.sub("[redacted]", t or "")
+
+
+# Pattern recognition shared by training (collect) and memory (facts / recall).
+# ponytail: regex heuristics; an LLM classifier only if bench shows these labels are too noisy
+CORRECTION = re.compile(r"^\W*(no\b|nope\b|wrong\b|undo\b|revert\b|stop\b|don'?t\b|do not\b|that'?s not\b|not what\b"
+                        r"|why (did|are|is|would|didn'?t|didnt) (you|we|it|this)\b|why didn'?t\b|why didnt\b"
+                        r"|you (broke|didn'?t|missed|forgot)\b|still\b|it'?s (not|broken|failing)\b"
+                        r"|(it |this )?(doesn'?t|didn'?t|isn'?t) work"
+                        r"|not working\b|this is wrong\b)|\[Request interrupted", re.I)
+# standing-rule wording only; "instead of X" is almost always a one-off task instruction, not a habit
+PREF = re.compile(r"\b(always|never|from now on|i prefer|prefer to|don'?t use|dont use|do not use|stop using)\b", re.I)
+FACT_MIN = 2          # a preference must recur across tasks before it is injected: once = a task, twice = a pattern
+
+
+def is_correction(t):
+    """User pushed back on the previous answer (or interrupted it) -> that answer was rejected."""
+    return bool(CORRECTION.search(t or ""))
 
 
 TEMP_PATH = re.compile(r"'/(?:var|private|tmp)/[^']*'|/(?:var|private|tmp)/\S+")  # pasted screenshots etc.
@@ -127,6 +144,14 @@ def _slim(tasks):
     return tasks
 
 
+def _link(tasks):
+    """Attach the user's pushback to the task it was about, so memory says what NOT to repeat."""
+    for a, b in zip(tasks, tasks[1:]):
+        if is_correction(b["prompt"]):
+            a["corrected"] = b["prompt"][:200]
+    return tasks
+
+
 def build(skip_sid=None):
     """Incremental index refresh: re-parse only sessions that changed since last time."""
     try:
@@ -143,7 +168,7 @@ def build(skip_sid=None):
             idx["claude"].pop(f, None)
             continue  # the live session (not "past" work) or a held-out bench session
         if idx["claude"].get(f, [0])[0] != m:
-            idx["claude"][f] = [m, _slim(claude_tasks(f))]
+            idx["claude"][f] = [m, _link(_slim(claude_tasks(f)))]
     idx["claude"] = {f: v for f, v in idx["claude"].items() if f in seen}
     if os.path.exists(config.OPENCODE_DB):
         try:
@@ -155,7 +180,7 @@ def build(skip_sid=None):
                         idx["opencode"].pop(sid, None)  # bench replays are tests, not your work
                         continue
                     if sid != skip_sid and idx["opencode"].get(sid, [0])[0] != upd:
-                        idx["opencode"][sid] = [upd, _slim(opencode_tasks(db, sid, cwd))]
+                        idx["opencode"][sid] = [upd, _link(_slim(opencode_tasks(db, sid, cwd)))]
             finally:
                 db.close()
         except (sqlite3.Error, json.JSONDecodeError):
@@ -216,8 +241,65 @@ def render(hits):
             lines.append("  ran: " + " | ".join(t["cmds"][-3:]))
         if t["outcome"]:
             lines.append("  ended: " + t["outcome"][-300:].replace("\n", " "))
+        if t.get("corrected"):
+            lines.append("  user then corrected: " + t["corrected"].replace("\n", " "))
         out.append("\n".join(lines))
     return "\n".join(out)[:config.MEMORY_CAP]
+
+
+def facts(tasks, cwd=None):
+    """Structured memory (schema v1): standing preferences the user stated in their own prompts.
+    Derived from the task index on demand, so nothing is stored twice or goes stale.
+    Same word-set across sessions = one record with more evidence; newest wording wins;
+    seen in 2+ projects = user scope, else project scope. cwd filters to user + that project."""
+    recs = {}
+    for t in tasks:
+        for s in re.split(r"(?<=[.!?])\s+|\n", t["prompt"]):
+            s = s.strip(" -*>\t")
+            if not (12 <= len(s) <= 200 and PREF.search(s)) or s.startswith(("<", "{", '"')) \
+                    or s.endswith("?") or '":' in s or re.search(r"never ?mind", s, re.I):
+                continue
+            key = " ".join(sorted(set(_words(s))))
+            if not key:
+                continue
+            r = recs.setdefault(key, {"kind": "correction" if is_correction(t["prompt"]) else "preference",
+                                      "text": s, "projects": set(), "evidence": [],
+                                      "first": t["t"], "last": t["t"]})
+            r["projects"].add(t["cwd"] or "?")
+            r["evidence"].append(t["id"])
+            r["first"] = min(r["first"], t["t"])
+            if t["t"] >= r["last"]:
+                r["text"], r["last"] = s, t["t"]
+    here = os.path.abspath(cwd) if cwd else None
+    day = lambda ts: datetime.fromtimestamp(ts).date().isoformat()
+    out = []
+    for key, r in recs.items():
+        n, projs = len(r["evidence"]), sorted(r["projects"])
+        scope = "user" if len(projs) > 1 else f"project:{projs[0]}"
+        if here and scope not in ("user", f"project:{here}"):
+            continue
+        out.append({"id": "f_" + hashlib.sha1(key.encode()).hexdigest()[:8], "schema": 1, "kind": r["kind"],
+                    "scope": scope, "text": r["text"], "count": n,
+                    "confidence": round(min(0.95, 0.5 + 0.15 * (n - 1)), 2),  # ponytail: evidence-count prior
+                    "evidence": r["evidence"][-5:], "first_seen": day(r["first"]), "last_seen": day(r["last"]),
+                    "_last": r["last"]})
+    out.sort(key=lambda r: (r["count"], r.pop("_last")), reverse=True)
+    return out
+
+
+def render_facts(recs, cap=1200):
+    recs = [r for r in recs if r["count"] >= FACT_MIN][:12]
+    if not recs:
+        return ""
+    lines = ["# Standing preferences (footprint memory — stated by this user in past sessions; "
+             "follow unless told otherwise)"]
+    lines += [f"- {r['text']}" + (f" (x{r['count']})" if r["count"] > 1 else "") for r in recs]
+    return "\n".join(lines)[:cap]
+
+
+def facts_cmd(args=()):
+    """`footprint facts [--all]` — structured memory as JSON (this project + user-wide; --all = every project)."""
+    print(json.dumps(facts(build(), None if "--all" in args else os.getcwd()), indent=2))
 
 
 def recall(args=()):
@@ -281,4 +363,22 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     assert _words(shot) == [] and _words(f"fix this {shot} date picker") == ["date", "picker"]  # temp paths ignored
     assert not search("date picker years", ts + filler, exclude_sid="s1")  # current session excluded
     assert "dob-picker.tsx" in render(hits) and "asked:" in render(hits)
+    assert is_correction("no, use pnpm not npm") and is_correction("still broken") and is_correction("[Request interrupted by user]")
+    assert is_correction("why are we using local DB , use neon") and is_correction("still undfined")
+    assert is_correction("why didnt mentioned continue command")
+    assert not is_correction("now add a dark mode toggle") and not is_correction("notify the user on save")
+    assert not is_correction("why do we need push notification ?")  # a question, not pushback
+    lt = _link([_task("x", "s", "/p", 1, "add login"), _task("x", "s", "/p", 2, "no, use github oauth not email"),
+                _task("x", "s", "/p", 3, "great, now tests")])
+    assert lt[0]["corrected"].startswith("no, use github") and "corrected" not in lt[1]
+    pf = [_task("x", "a", "/p1", 10, "Always use pnpm in this repo. Then add tests."),
+          _task("x", "b", "/p2", 20, "always use pnpm in this repo!"),
+          _task("x", "c", "/p1", 30, "never mind that, fix the header"),
+          _task("x", "d", "/p3", 40, "don't use any for types")]
+    fs = facts(pf)
+    assert [f["text"] for f in fs] == ["always use pnpm in this repo!", "don't use any for types"], fs  # "never mind" skipped
+    assert fs[0]["count"] == 2 and fs[0]["scope"] == "user" and fs[1]["scope"] == "project:/p3", fs
+    assert [f["text"] for f in facts(pf, "/p1")] == ["always use pnpm in this repo!"]  # /p3 fact out of scope
+    assert "pnpm" in render_facts(fs) and "any for types" not in render_facts(fs)  # seen once: not injected
+    assert render_facts([]) == "" and not facts([_task("x", "e", "/p", 1, "should we always use pnpm?")])
     print("memory self-check ok")
