@@ -4,8 +4,63 @@ const INSTALL = "curl -fsSL https://www.tracefootprint.space/install.sh | sh -s 
 
 const $ = <span className="text-muted-foreground">$ </span>;
 
+// Local model pipeline, in order: what each command does and why it's needed (from service.py / backends).
+const localModelSteps: { cmd: string; what: string; why: string }[] = [
+  {
+    cmd: "footprint setup",
+    what: "Creates a private Python environment in ~/.footprint/app/.venv and installs the training engine: MLX on a Mac, PyTorch + transformers on Linux/Windows (~2 GB). One time only.",
+    why: "Training libraries are large; keeping them in their own environment means they never touch your system Python. train / eval / serve / install run it for you if you skip it.",
+  },
+  {
+    cmd: "footprint trace",
+    what: "Marks \"now\": only Claude sessions from this moment on become training data.",
+    why: "Lets you choose what the model learns from — skip old or unrelated history. Skip this command to train on all your past sessions.",
+  },
+  {
+    cmd: "…work with Claude Code for a while",
+    what: "Use Claude normally on real tasks.",
+    why: "These sessions are the lessons. More sessions = more examples = a better model.",
+  },
+  {
+    cmd: "footprint collect",
+    what: "Turns your Claude sessions (this project, or all projects) into training examples: \"conversation so far → what Claude did next\". Keeps 10% aside for testing.",
+    why: "A model can't learn from raw transcripts; it needs example pairs. The 10% held back is what eval tests on.",
+  },
+  {
+    cmd: "footprint train",
+    what: "LoRA fine-tune: trains a small add-on (~20 MB adapter) on top of the base model (Qwen2.5-Coder 1.5B). Minutes to hours; the laptop gets hot.",
+    why: "Teaches the model your and Claude's working style without changing or re-downloading the base model.",
+  },
+  {
+    cmd: "footprint eval",
+    what: "Scores the trained model on the 10% it never saw (loss + perplexity — lower is better).",
+    why: "Confirms it actually learned before you rely on it. It measures text prediction, not task success — use footprint bench for that.",
+  },
+  {
+    cmd: "footprint install",
+    what: "Registers a background service (launchd / systemd / Task Scheduler) that runs the model at localhost:8399 on login and restarts it if it crashes. Adds a \"footprint\" model and a /footprint command to OpenCode.",
+    why: "So you never start it by hand — in OpenCode just pick the footprint model with /models.",
+  },
+  {
+    cmd: "footprint serve",
+    what: "Runs the same model server in the foreground, in this terminal.",
+    why: "Only for debugging, or if you don't want a background service. Not needed after install.",
+  },
+  {
+    cmd: "footprint status",
+    what: "Shows the engine (mlx / torch), the base model, how many training examples you have, and whether a trained adapter exists.",
+    why: "A quick check of where you are in these steps.",
+  },
+];
+
 // First-time user path, in order. Required steps first; optional ones are marked.
-const steps: { title: string; body: React.ReactNode; code?: React.ReactNode; optional?: boolean }[] = [
+const steps: {
+  title: string;
+  body: React.ReactNode;
+  code?: React.ReactNode;
+  optional?: boolean;
+  detail?: { cmd: string; what: string; why: string }[];
+}[] = [
   {
     title: "Check you have Python 3",
     body: "footprint needs nothing else — no npm, no git. macOS / Linux for now (Windows coming). If this prints a version, you're set; on macOS without it, run xcode-select --install.",
@@ -70,16 +125,8 @@ const steps: { title: string; body: React.ReactNode; code?: React.ReactNode; opt
   },
   {
     title: "Train a local model on your sessions",
-    body: "Advanced: an offline model in your style. Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU) and heats it up. Run trace first, work for a while, then the rest.",
-    code: (
-      <>
-        {$}footprint trace{"\n"}
-        {$}footprint collect{"\n"}
-        {$}footprint train{"\n"}
-        {$}footprint eval{"\n"}
-        {$}footprint install
-      </>
-    ),
+    body: "Advanced: an offline model that learned from your Claude sessions. Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU), and makes it hot while training. Honest note: the base model is small (1.5B) — it picks up style, but is weak at agent tasks; check it with footprint bench. Run these in order:",
+    detail: localModelSteps,
     optional: true,
   },
 ];
@@ -156,6 +203,26 @@ export function SetupSteps() {
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
             {s.code && <CodeBlock className="mt-3">{s.code}</CodeBlock>}
+            {s.detail && (
+              <ol className="mt-4 space-y-4 border-l border-border pl-4">
+                {s.detail.map((d, j) => (
+                  <li key={d.cmd} className="text-sm">
+                    <p>
+                      <span className="text-muted-foreground">{String.fromCharCode(97 + j)}. </span>
+                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-guava-flesh">{d.cmd}</code>
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      <span className="font-medium text-foreground">What: </span>
+                      {d.what}
+                    </p>
+                    <p className="mt-0.5 text-muted-foreground">
+                      <span className="font-medium text-foreground">Why: </span>
+                      {d.why}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
           </li>
         ))}
       </ol>

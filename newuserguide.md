@@ -95,16 +95,23 @@ where you can create a public share link + README badge.
 
 ## 10. (Optional, advanced) Train a local model on your sessions
 
-Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU) — it heats the laptop.
+An offline model that learned from your Claude sessions. Needs an Apple Silicon Mac with 16GB+
+(or an NVIDIA GPU) and makes it hot while training. Honest note: the base model is small (1.5B) —
+it picks up style but is weak at agent tasks; check it with `footprint bench`.
 
-```sh
-footprint trace      # first: only sessions from now on become training data
-# …work for a while…
-footprint collect
-footprint train
-footprint eval
-footprint install    # keeps it running; shows up in OpenCode as "footprint"
-```
+Run these in order:
+
+| # | Command | What it does | Why it's needed |
+|---|---|---|---|
+| a | `footprint setup` | Creates a private Python environment (`~/.footprint/app/.venv`) and installs the training engine — MLX on a Mac, PyTorch + transformers on Linux/Windows (~2 GB). One time. | Training libraries are large; their own environment keeps your system Python untouched. `train`/`eval`/`serve`/`install` run it for you if you skip it. |
+| b | `footprint trace` | Marks "now": only Claude sessions from this moment on become training data. | You choose what the model learns from. Skip it to train on all past sessions. |
+| c | *…work with Claude Code for a while* | Use Claude normally on real tasks. | These sessions are the lessons — more sessions, better model. |
+| d | `footprint collect` | Turns your Claude sessions into examples: "conversation so far → what Claude did next". Keeps 10% aside for testing. | A model needs example pairs, not raw transcripts. The 10% is what `eval` tests on. |
+| e | `footprint train` | LoRA fine-tune: a small add-on (~20 MB adapter) on top of the base model (Qwen2.5-Coder 1.5B). Minutes to hours; laptop gets hot. | Teaches your and Claude's working style without changing the base model. |
+| f | `footprint eval` | Scores the trained model on the 10% it never saw (loss + perplexity — lower is better). | Confirms it learned before you rely on it. Measures text prediction, not task success — use `footprint bench` for that. |
+| g | `footprint install` | Background service (launchd / systemd / Task Scheduler) runs the model at `localhost:8399` on login, restarts on crash; adds a "footprint" model + `/footprint` command to OpenCode. | You never start it by hand — in OpenCode pick the footprint model with `/models`. |
+| h | `footprint serve` | Runs the same model server in the foreground. | Debugging only, or if you don't want a background service. Not needed after `install`. |
+| i | `footprint status` | Engine (mlx / torch), base model, number of training examples, adapter yes/no. | Quick check of where you are in these steps. |
 
 ---
 
