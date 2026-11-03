@@ -74,8 +74,7 @@ export function KeysPanel({ keys }: { keys: ApiKey[] }) {
             {keys.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-6 text-muted-foreground">
-                  No keys yet. Generate one above — it lands in
-                  footprint-vault/keys.json on your GitHub.
+                  No keys yet — generate your first one above.
                 </td>
               </tr>
             )}

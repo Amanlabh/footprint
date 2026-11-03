@@ -53,41 +53,36 @@ const localModelSteps: { cmd: string; what: string; why: string }[] = [
   },
 ];
 
-// First-time user path, in order. Required steps first; optional ones are marked.
-const steps: {
-  title: string;
-  body: React.ReactNode;
-  code?: React.ReactNode;
-  optional?: boolean;
-  detail?: { cmd: string; what: string; why: string }[];
-}[] = [
+// First-time path: everything a new user needs, in order. Nothing optional here.
+const steps: { title: string; body: React.ReactNode; code?: React.ReactNode; slot?: "keys" }[] = [
   {
     title: "Check you have Python 3",
-    body: "footprint needs nothing else — no npm, no git. macOS / Linux for now (Windows coming). If this prints a version, you're set; on macOS without it, run xcode-select --install.",
+    body: "That's all footprint needs — no npm, no git. macOS or Linux (Windows coming). No Python on a Mac? Run xcode-select --install.",
     code: <>{$}python3 --version</>,
   },
   {
     title: "Generate your key",
-    body: "Above: type a label (e.g. macbook) → Generate API key. It is shown once, with the install command already filled in. Copy that command.",
+    body: "Type a label (e.g. macbook) and click Generate API key. The key is shown once, inside a ready-to-paste install command — copy that command.",
+    slot: "keys",
   },
   {
-    title: "Install + sign in",
-    body: "Paste the copied command in your terminal. It installs footprint, signs you in, and hooks into Claude Code and OpenCode.",
+    title: "Install and sign in",
+    body: "Paste the copied command in your terminal. It installs footprint, signs you in, and connects it to Claude Code and OpenCode.",
     code: <>{$}{INSTALL}</>,
   },
   {
     title: "Open a new terminal and check it works",
-    body: "A new terminal picks up the footprint command. This prints your last session in this folder — or \"no previous session\", which is fine on day one.",
+    body: "Prints your last session in this folder — or \"no previous session\", which is normal on day one.",
     code: <>{$}footprint context</>,
   },
   {
-    title: "Get OpenCode (your free fallback)",
-    body: "Free coding agent with free models (Big Pickle). Skip if you already have it.",
+    title: "Get OpenCode — your free fallback",
+    body: "A free coding agent with free models. Skip if you already have it.",
     code: <>{$}curl -fsSL https://opencode.ai/install | bash</>,
   },
   {
     title: "Work in Claude Code as usual",
-    body: "Nothing to change. footprint quietly remembers each session: goal, files, todos, last error, how tasks were solved.",
+    body: "Nothing changes. footprint quietly remembers each session: the goal, files, todos, last error, and how tasks were solved.",
     code: (
       <>
         {$}cd my-project{"\n"}
@@ -97,37 +92,13 @@ const steps: {
   },
   {
     title: "Claude ran out? Open OpenCode in the same project",
-    body: "The new session already knows where you stopped, and every prompt gets your similar past work — any model. Pick a model with /models (Big Pickle is free). Chat already open? Type /continue.",
+    body: "It already knows where you stopped, and each prompt gets your similar past work. Pick a free model with /models (Big Pickle). A chat already open? Type /continue.",
     code: (
       <>
         {$}cd my-project{"\n"}
         {$}opencode
       </>
     ),
-  },
-  {
-    title: "Want the exact same chat instead?",
-    body: "Moves your whole Claude Code conversation into OpenCode, message by message.",
-    code: <>{$}footprint switch</>,
-    optional: true,
-  },
-  {
-    title: "Measure which free model works best for you",
-    body: "Replays tasks Claude finished in your repos with any model and scores them. Scores (numbers only) appear in Claude parity above; share them with a public link + badge if you like.",
-    code: (
-      <>
-        {$}footprint bench harvest{"\n"}
-        {$}footprint bench run opencode/big-pickle --memory=both{"\n"}
-        {$}footprint bench upload
-      </>
-    ),
-    optional: true,
-  },
-  {
-    title: "Train a local model on your sessions",
-    body: "Advanced: an offline model that learned from your Claude sessions. Needs an Apple Silicon Mac with 16GB+ (or an NVIDIA GPU), and makes it hot while training. Honest note: the base model is small (1.5B) — it picks up style, but is weak at agent tasks; check it with footprint bench. Run these in order:",
-    detail: localModelSteps,
-    optional: true,
   },
 ];
 
@@ -184,93 +155,154 @@ const commandGroups: { title: string; note?: string; rows: [string, string][] }[
   },
 ];
 
-export function SetupSteps() {
-  return (
-    <section className="mt-16 border-t border-border/60 pt-12">
-      <h2 className="text-2xl font-semibold tracking-tight">Get started</h2>
-      <p className="font-doto mt-2 text-foreground/80">first time? follow these in order — steps 1–7 take two minutes.</p>
+const h2 = "text-2xl font-semibold tracking-tight";
+const section = "mt-16 border-t border-border/60 pt-12";
 
-      <ol className="mt-8 space-y-8">
+export function GetStarted({ keys }: { keys: React.ReactNode }) {
+  return (
+    <section className="mt-12">
+      <h2 className={h2}>Get started</h2>
+      <p className="font-doto mt-2 text-foreground/80">seven steps, about two minutes. do them in order.</p>
+      <ol className="mt-8 space-y-10">
         {steps.map((s, i) => (
           <li key={s.title}>
             <p className="font-medium">
               {i + 1}. {s.title}
-              {s.optional && (
-                <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 align-middle font-pixel text-[10px] text-muted-foreground">
-                  optional
-                </span>
-              )}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{s.body}</p>
             {s.code && <CodeBlock className="mt-3">{s.code}</CodeBlock>}
-            {s.detail && (
-              <ol className="mt-4 space-y-4 border-l border-border pl-4">
-                {s.detail.map((d, j) => (
-                  <li key={d.cmd} className="text-sm">
-                    <p>
-                      <span className="text-muted-foreground">{String.fromCharCode(97 + j)}. </span>
-                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-guava-flesh">{d.cmd}</code>
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      <span className="font-medium text-foreground">What: </span>
-                      {d.what}
-                    </p>
-                    <p className="mt-0.5 text-muted-foreground">
-                      <span className="font-medium text-foreground">Why: </span>
-                      {d.why}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
+            {s.slot === "keys" && <div className="mt-4">{keys}</div>}
           </li>
         ))}
       </ol>
+      <p className="mt-10 rounded-xl border border-guava-rind/60 bg-accent/40 p-4 text-sm">
+        <span className="font-medium">That&apos;s it.</span> From now on, whenever Claude runs out, open
+        OpenCode in the same folder and keep going.
+      </p>
+    </section>
+  );
+}
 
-      <h3 className="mt-12 text-lg font-semibold tracking-tight">All commands</h3>
-      <div className="mt-4 space-y-8">
-        {commandGroups.map((g) => (
-          <div key={g.title}>
-            <p className="font-pixel text-xs text-muted-foreground">{g.title}</p>
-            {g.note && <p className="mt-1 text-xs text-muted-foreground">{g.note}</p>}
-            <div className="mt-2 overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-left text-sm">
-                <tbody>
-                  {g.rows.map(([cmd, what]) => (
-                    <tr key={cmd} className="border-b border-border/60 last:border-0">
-                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-guava-flesh">{cmd}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{what}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+function Extra({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border p-5">
+      <h3 className="font-medium">{title}</h3>
+      <div className="mt-2 space-y-3 text-sm text-muted-foreground">{children}</div>
+    </div>
+  );
+}
+
+/** Optional extras, once the basics work. `parity` = the user's bench results (if any). */
+export function GoFurther({ parity }: { parity: React.ReactNode }) {
+  return (
+    <section className={section}>
+      <h2 className={h2}>Go further</h2>
+      <p className="font-doto mt-2 text-foreground/80">optional — once the basics work.</p>
+      <div className="mt-8 space-y-6">
+        <Extra title="Continue the exact same chat">
+          <p>Moves your whole Claude Code conversation into OpenCode, message by message.</p>
+          <CodeBlock>{$}footprint switch</CodeBlock>
+        </Extra>
+
+        <Extra title="Find the free model that works best for you">
+          <p>
+            Replays tasks Claude finished in your repos with any model and scores them (Claude parity).
+            Only the scores are uploaded — never prompts or code.
+          </p>
+          <CodeBlock>
+            {$}footprint bench harvest{"\n"}
+            {$}footprint bench run opencode/big-pickle --memory=both{"\n"}
+            {$}footprint bench upload
+          </CodeBlock>
+          {parity}
+        </Extra>
+
+        <Extra title="Train a local model (advanced)">
+          <p>
+            An offline model that learns from your Claude sessions. Needs an Apple Silicon Mac with 16GB+
+            (or an NVIDIA GPU) and gets hot while training. The base model is small (1.5B): it picks up
+            your style but is weak at agent tasks — check it with footprint bench.
+          </p>
+          <details className="group">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Show the steps (what each does and why)
+            </summary>
+            <ol className="mt-4 space-y-4 border-l border-border pl-4">
+              {localModelSteps.map((d, j) => (
+                <li key={d.cmd}>
+                  <p>
+                    <span>{String.fromCharCode(97 + j)}. </span>
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-guava-flesh">{d.cmd}</code>
+                  </p>
+                  <p className="mt-1">
+                    <span className="font-medium text-foreground">What: </span>
+                    {d.what}
+                  </p>
+                  <p className="mt-0.5">
+                    <span className="font-medium text-foreground">Why: </span>
+                    {d.why}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </Extra>
+      </div>
+    </section>
+  );
+}
+
+export function CommandReference() {
+  return (
+    <section className={section}>
+      <details>
+        <summary className={`${h2} cursor-pointer`}>All commands</summary>
+        <div className="mt-6 space-y-8">
+          {commandGroups.map((g) => (
+            <div key={g.title}>
+              <p className="font-pixel text-xs text-muted-foreground">{g.title}</p>
+              {g.note && <p className="mt-1 text-xs text-muted-foreground">{g.note}</p>}
+              <div className="mt-2 overflow-x-auto rounded-xl border border-border">
+                <table className="w-full text-left text-sm">
+                  <tbody>
+                    {g.rows.map(([cmd, what]) => (
+                      <tr key={cmd} className="border-b border-border/60 last:border-0">
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-guava-flesh">{cmd}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{what}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+const faq: [string, string][] = [
+  ["“footprint: command not found”", "Open a new terminal (step 4)."],
+  ["“key rejected”", "The key was revoked, mistyped, or made before 2 Nov 2026. Generate a new one in step 2, then run footprint login fp_…"],
+  ["No handover in a new session", "Run footprint context in that folder. “No previous session” means nothing recent happened there yet."],
+  ["Another device", "Run the same install command there — same key or a new one."],
+  ["Update footprint", "Re-run the install command. Your data is kept."],
+  ["Lost a key", "Revoke it in step 2 — every machine using it stops. Then generate a new one."],
+];
+
+export function Troubleshooting() {
+  return (
+    <section className={section}>
+      <h2 className={h2}>Troubleshooting</h2>
+      <dl className="mt-6 space-y-4 text-sm">
+        {faq.map(([q, a]) => (
+          <div key={q}>
+            <dt className="font-medium">{q}</dt>
+            <dd className="mt-0.5 text-muted-foreground">{a}</dd>
           </div>
         ))}
-      </div>
-
-      <ul className="mt-8 space-y-2 text-sm text-muted-foreground">
-        <li>
-          <span className="font-medium text-foreground">“footprint: command not found”?</span> Open a
-          new terminal (step 4).
-        </li>
-        <li>
-          <span className="font-medium text-foreground">Another device?</span> Run the same
-          install command there — same key or a new one.
-        </li>
-        <li>
-          <span className="font-medium text-foreground">Update?</span> Re-run the install
-          command. Your data is kept.
-        </li>
-        <li>
-          <span className="font-medium text-foreground">Lost a key?</span> Revoke it above —
-          every machine using it stops working. Generate a new one.
-        </li>
-        <li>
-          <span className="font-medium text-foreground">“key rejected”?</span> The key was
-          revoked or mistyped, or made before 2 Nov 2026 — generate a new one.
-        </li>
-      </ul>
+      </dl>
     </section>
   );
 }
