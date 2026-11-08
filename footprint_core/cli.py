@@ -10,7 +10,8 @@ Commands:
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
   bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
-  recall [text]         similar past tasks from all your sessions (hook: added to each prompt)
+  recall [text|--embed] similar past tasks from all your sessions (hook: added to each prompt); --embed = index all for semantic search
+  profile               what new sessions learn about you + this project (also part of `context`)
   switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained
   login [fp_key]        sign in with your website API key (no key = GitHub device flow)
@@ -37,6 +38,7 @@ def main(argv=None):
      "context": lambda: context.show(argv[1:]),
      "switch": lambda: switch.switch(argv[1:]),
      "recall": lambda: memory.recall(argv[1:]),
+     "profile": lambda: print(memory.profile(memory.build(), os.getcwd()) or "nothing learned yet"),
      "bench": lambda: bench.main(argv[1:]),
      "status": service.status,
      "setup": service.setup,

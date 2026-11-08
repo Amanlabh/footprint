@@ -14,7 +14,7 @@ from . import config, transcripts
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "edit", "write"}
 DONE = {"completed", "cancelled"}
 NOISE = ("<command-", "<task-notification>", "<local-command-", "<bash-",  # harness messages, not asks
-         "# Similar past work (footprint memory")  # our own recall output: never index it as a task
+         "# Similar past work (footprint memory", "# Your profile (footprint")  # our own recall output: never index it as a task
 HANDOFF_END = "Continue from here if the user's next request relates; don't re-ask what's above."
 PLUGIN_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
 
@@ -184,9 +184,13 @@ def show(args=()):
     tp = hook.get("transcript_path")
     cwd = hook.get("cwd") or os.getcwd()
     found = previous(cwd, hook.get("session_id"), os.path.dirname(tp) if tp else None)
+    from . import memory
+    prof = "" if os.environ.get("FOOTPRINT_MEMORY") == "off" else memory.profile(memory.build(hook.get("session_id")), cwd)
+    if prof:  # before the handover: /continue strips everything up to HANDOFF_END, so it's never indexed as a prompt
+        print(prof + ("\n" if found else ""))
     if found:
         print(render(*found))
-    elif not hook:
+    elif not hook and not prof:
         print(f"no previous session within {config.CONTEXT_MAX_AGE_H}h for {cwd}")
 
 
@@ -218,9 +222,13 @@ def install():
         f.write("---\ndescription: continue from your last session in this project, Claude Code or OpenCode (footprint)\n---\n"
                 f"!`{cmd}`\n\n$ARGUMENTS\n")
     from . import memory
-    n = len(memory.build())  # first index now, so the first prompt isn't slow
+    tasks = memory.build()  # first index now, so the first prompt isn't slow
+    n, emb = len(tasks), len(memory.embed_index(tasks, limit=len(tasks)))
     print(f"continuity on — new sessions start where the last one (Claude Code or OpenCode) left off.\n"
           f"memory on — each prompt gets similar past work from {n} indexed tasks.\n"
+          + (f"semantic recall on ({config.EMBED_MODEL}).\n" if emb else
+             f"semantic recall off — for it: ollama pull {config.EMBED_MODEL} && footprint recall --embed\n")
+          + "profile on — new sessions get your standing instructions + this project's memory (footprint profile).\n"
           f"  claude code: SessionStart + UserPromptSubmit hooks in {path}\n"
           f"  opencode:    auto via plugin {plugin}\n"
           f"               /continue [task] for sessions already open ({oc})\n"
