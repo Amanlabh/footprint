@@ -46,14 +46,11 @@ def has_adapter():
 
 
 def ensure_test():
-    """Path to held-out eval set. mlx_lm --test wants data/test.jsonl; collect
-    only writes valid.jsonl, so reuse that as the test split. Copied fresh every
-    time: each collect reshuffles, so a stale copy would leak into train."""
-    valid = os.path.join(DATA, "valid.jsonl")
-    if not os.path.exists(valid):
-        sys.exit("no eval data. run: footprint collect")
-    import shutil
-    return shutil.copyfile(valid, os.path.join(DATA, "test.jsonl"))
+    """Path to the held-out test set (newest sessions, written by collect, never trained or validated on)."""
+    test = os.path.join(DATA, "test.jsonl")
+    if not os.path.exists(test):
+        sys.exit("no test data. run: footprint collect")
+    return test
 
 
 def resolve_iters():

@@ -53,23 +53,43 @@ def project_dir(path):
     return os.path.join(config.PROJECTS, re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(path)))
 
 
+def rejected(msgs):
+    """Per message: True if it belongs to a task the user pushed back on — their next real
+    prompt is a correction ("no, …", "still broken") or they interrupted it mid-way."""
+    from .memory import is_correction
+    prompts = [i for i, m in enumerate(msgs) if m["role"] == "user" and not m["content"].startswith("<tool_result>")]
+    out = [False] * len(msgs)
+    for a, b in zip(prompts, prompts[1:] + [len(msgs)]):
+        bad = (b < len(msgs) and is_correction(msgs[b]["content"])) or \
+            any("[Request interrupted" in m["content"] for m in msgs[a + 1:b] if m["role"] == "user")
+        out[a:b] = [bad] * (b - a)
+    return out
+
+
 def collect(project=None):
+    """Curated LoRA data: only turns the user accepted, secrets redacted, split by session
+    in time order (oldest -> train, newer -> valid, newest -> test) so no session leaks across."""
+    from .bench import holdout
+    from .memory import _redact
     since = float(open(config.TRACE_MARK, encoding="utf-8").read()) if os.path.exists(config.TRACE_MARK) else 0.0
     pdir = project_dir(project or os.getcwd())
     dirs = [pdir] if os.path.isdir(pdir) else glob.glob(os.path.join(config.PROJECTS, "*"))
-    from .bench import holdout
     held = holdout()
-    examples, seen, dupes = [], set(), 0
+    sessions, seen, dupes, dropped = [], set(), 0, 0
     for d in dirs:
         for f in glob.glob(os.path.join(d, "*.jsonl")):
             if os.path.getmtime(f) < since or os.path.basename(f)[:-6] in held:
                 continue  # held-out bench sessions never become training data
-            msgs = parse_session(f)
+            msgs = [{**m, "content": _redact(m["content"])} for m in parse_session(f)]
             if len(msgs) < 2:
                 continue
-            # one example per assistant turn, with preceding context under budget
+            bad, examples = rejected(msgs), []
+            # one example per accepted assistant turn, with preceding context under budget
             for i, m in enumerate(msgs):
                 if m["role"] != "assistant":
+                    continue
+                if bad[i]:
+                    dropped += 1
                     continue
                 ctx, size = [], 0
                 for prev in reversed(msgs[:i]):
@@ -86,16 +106,23 @@ def collect(project=None):
                     continue
                 seen.add(sig)
                 examples.append(ex)
-    if not examples:
+            if examples:
+                sessions.append((os.path.getmtime(f), examples))
+    if len(sessions) < 3:
         hint = " (trace marker active — only sessions after `trace` count; delete ~/.claude/footprint-trace for all history)" if since else ""
-        sys.exit(f"no transcripts found under {config.PROJECTS}{hint}")
-    random.seed(0)
-    random.shuffle(examples)
-    n_valid = max(1, len(examples) // 10)
+        sys.exit(f"need at least 3 sessions with accepted work under {config.PROJECTS}, found {len(sessions)}{hint}")
+    sessions.sort(key=lambda s: s[0])
+    k = max(1, len(sessions) // 10)
+    splits = {"train": sessions[:-2 * k], "valid": sessions[-2 * k:-k], "test": sessions[-k:]}
     os.makedirs(config.DATA, exist_ok=True)
-    for name, chunk in [("valid", examples[:n_valid]), ("train", examples[n_valid:])]:
+    counts = {}
+    for name, chunk in splits.items():
+        exs = [e for _, es in chunk for e in es]
+        random.Random(0).shuffle(exs)  # shuffle within a split only: sessions never cross splits
+        counts[name] = len(exs)
         with open(os.path.join(config.DATA, f"{name}.jsonl"), "w", encoding="utf-8") as fh:
-            for e in chunk:
-                fh.write(json.dumps(e) + "\n")
-    print(f"collected {len(examples)} examples ({len(examples)-n_valid} train / {n_valid} valid, "
-          f"{dupes} duplicates skipped) -> {config.DATA}")
+            fh.writelines(json.dumps(e) + "\n" for e in exs)
+    print(f"collected {sum(counts.values())} accepted examples from {len(sessions)} sessions "
+          f"({counts['train']} train / {counts['valid']} valid / {counts['test']} test, split by session, newest = test)\n"
+          f"  dropped {dropped} turns the user corrected or interrupted · {dupes} duplicates · secrets redacted\n"
+          f"  -> {config.DATA}")
