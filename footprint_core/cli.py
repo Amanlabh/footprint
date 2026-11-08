@@ -13,7 +13,8 @@ Commands:
   recall [text|--embed] similar past tasks from all your sessions (hook: added to each prompt); --embed = index all for semantic search
   profile               what new sessions learn about you + this project (also part of `context`)
   recall [text]         similar past tasks from all your sessions (hook: added to each prompt)
-  memory list|forget    what sessions are told about you (list [--all]); forget <id> drops a wrong preference
+  memory list|forget|review|eval  what sessions are told about you (list [--all]); forget <id> drops a wrong
+                        preference; review = mark each right/wrong; eval = correction rate, git outcomes, precision
   facts [--all]         structured memory: your stated preferences as JSON (hook: added at session start)
   switch [list|session] open latest (or chosen) Claude Code chat in OpenCode, full history; list = show ids
   status                what's collected/trained

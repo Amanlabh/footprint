@@ -76,8 +76,13 @@ def collect(project=None):
     dirs = [pdir] if os.path.isdir(pdir) else glob.glob(os.path.join(config.PROJECTS, "*"))
     held = holdout()
     sessions, seen, dupes, dropped = [], set(), 0, 0
-    for d in dirs:
-        for f in glob.glob(os.path.join(d, "*.jsonl")):
+    from .memory import ARCHIVE
+    live = [f for d in dirs for f in glob.glob(os.path.join(d, "*.jsonl"))]
+    names = {os.path.basename(f) for f in live}  # archived (redacted) copies stand in for sessions Claude Code deleted
+    files = live + [a for d in dirs for a in glob.glob(os.path.join(ARCHIVE, os.path.basename(d), "*.jsonl"))
+                    if os.path.basename(a) not in names]
+    for d in [None]:
+        for f in files:
             if os.path.getmtime(f) < since or os.path.basename(f)[:-6] in held:
                 continue  # held-out bench sessions never become training data
             msgs = [{**m, "content": _redact(m["content"])} for m in parse_session(f)]

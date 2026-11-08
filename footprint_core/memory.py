@@ -54,11 +54,37 @@ CORRECTION = re.compile(r"^\W*(no\b|nope\b|wrong\b|undo\b|revert\b|stop\b|don'?t
 # standing-rule wording only; "instead of X" is almost always a one-off task instruction, not a habit
 PREF = re.compile(r"\b(always|never|from now on|i prefer|prefer to|don'?t use|dont use|do not use|stop using)\b", re.I)
 FACT_MIN = 2          # a preference must recur across tasks before it is injected: once = a task, twice = a pattern
+NEG = re.compile(r"\b(never|don'?t use|dont use|do not use|stop using)\b", re.I)
+PREF_WORDS = set("always never prefer from don dont do not stop use using i to on".split())
+HALF_LIFE = 60        # days: an unrepeated preference loses half its weight every ~2 months
+STALE = 0.25          # recency below this (~4 months unseen) = no longer injected
+SOURCE_W = {"correction": 0.8, "preference": 0.5}  # repo config (1.0) lives in repo(), always fresh
 
 
 def is_correction(t):
     """User pushed back on the previous answer (or interrupted it) -> that answer was rejected."""
     return bool(CORRECTION.search(t or ""))
+
+
+ACK_W = (r"(ok(ay)?|k|yes|yep|yeah|ya|sure|go( ahead)?|do it|done|cool|great|nice|perfect|thanks?|ty|lgtm"
+         r"|continue|proceed|ship it|commit|push|do|it|now|please|all)")
+ACK = re.compile(rf"^\W*{ACK_W}(\W+{ACK_W})*\W*$", re.I)  # only ack words: "ok do it", "yes commit", "yes do all"
+QUESTION = re.compile(r"^\W*(how|what|why|when|where|which|who|can|could|should|is|are|does|did|will|would)\b", re.I)
+
+
+def kind(t):
+    """correction | ack | paste | question | instruction. Only corrections and instructions can carry rules;
+    an ack labels the previous answer accepted; pastes and questions are never memory."""
+    t = (t or "").strip()
+    if is_correction(t):
+        return "correction"
+    if len(t) > 1500 or t.count("\n") > 15 or t.startswith(("{", "[", "```", "<")) or (t.startswith("# ") and "\n" in t):
+        return "paste"
+    if ACK.match(t):
+        return "ack"
+    if t.endswith("?") or QUESTION.match(t):
+        return "question"
+    return "instruction"
 
 
 TEMP_PATH = re.compile(r"'/(?:var|private|tmp)/[^']*'|/(?:var|private|tmp)/\S+")  # pasted screenshots etc.
@@ -238,8 +264,8 @@ def search(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):
         return []
     docs = []  # (task, key words = prompt + file names: what it was *about*, all words incl. outcome)
     for t in tasks:
-        if t["sid"] == exclude_sid or t["id"] in exclude_ids:
-            continue
+        if t["sid"] == exclude_sid or t["id"] in exclude_ids or kind(t["prompt"]) in ("paste", "ack"):
+            continue  # a pasted doc or an "ok" isn't past work to reuse
         kw = _words(f"{t['prompt']} {' '.join(map(os.path.basename, t['files']))}")
         docs.append((t, kw, kw + kw + _words(t["outcome"])))
     if not docs:
@@ -265,6 +291,23 @@ def search(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):
     return [h for h in out[:TOP_K] if h[0] >= out[0][0] * 0.5]  # weak tail = noise
 
 
+REVERT = re.compile(r"git (checkout -- |checkout \.|restore\b|reset --hard|revert\b)")
+
+
+def git_label(t):
+    """'reverted' if the task threw work away; 'committed' if a file it edited reached a commit within 2 days."""
+    if any(REVERT.search(c) for c in t["cmds"]):
+        return "reverted"
+    if not t["files"] or not t["cwd"] or not os.path.isdir(t["cwd"]):
+        return None
+    try:
+        hit = subprocess.run(["git", "-C", t["cwd"], "log", f"--since=@{int(t['t'])}", f"--until=@{int(t['t']) + 172800}",
+                              "--format=%h", "--", *t["files"][-8:]], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return "committed" if hit.strip() else None
+
+
 def render(hits):
     now, out = time.time(), ["# Similar past work (footprint memory — how this user solved related tasks before; "
                              "reuse what fits, verify before relying on it)"]
@@ -272,7 +315,8 @@ def render(hits):
         days = (now - t["t"]) / 86400
         when = f"{days:.0f}d ago" if days >= 1 else f"{days * 24:.0f}h ago"
         proj = os.path.basename(t["cwd"] or "") or "?"
-        lines = [f"- [{proj} · {t['src']} · {when}] asked: {t['prompt'][:300]}"]
+        tag = {"committed": " · kept in a commit", "reverted": " · reverted"}.get(git_label(t), "")
+        lines = [f"- [{proj} · {t['src']} · {when}{tag}] asked: {t['prompt'][:300]}"]
         if t["files"]:
             lines.append("  files: " + ", ".join(t["files"][-6:]))
         if t["cmds"]:
@@ -346,7 +390,7 @@ def semantic(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):
     out = []
     for t in tasks:
         v = vecs.get(t["id"])
-        if not v or t["sid"] == exclude_sid or t["id"] in exclude_ids:
+        if not v or t["sid"] == exclude_sid or t["id"] in exclude_ids or kind(t["prompt"]) in ("paste", "ack"):
             continue
         s = sum(a * b for a, b in zip(q, v))
         if cwd and t["cwd"] and os.path.abspath(cwd) == os.path.abspath(t["cwd"]):
@@ -473,6 +517,8 @@ def facts(tasks, cwd=None):
     seen in 2+ projects = user scope, else project scope. cwd filters to user + that project."""
     recs = {}
     for t in tasks:
+        if kind(t["prompt"]) == "paste":
+            continue  # a pasted doc's rules aren't the user's
         for s in re.split(r"(?<=[.!?])\s+|\n", t["prompt"]):
             s = s.strip(" -*>\t")
             if not (12 <= len(s) <= 200 and PREF.search(s)) or s.startswith(("<", "{", '"')) \
@@ -492,24 +538,39 @@ def facts(tasks, cwd=None):
     here = os.path.abspath(cwd) if cwd else None
     gone = forgotten()
     day = lambda ts: datetime.fromtimestamp(ts).date().isoformat()
+    now = max((t["t"] for t in tasks), default=0)  # decay against your latest activity, not the wall clock
     out = []
     for key, r in recs.items():
         n, projs = len(r["evidence"]), sorted(r["projects"])
         scope = "user" if len(projs) > 1 else f"project:{projs[0]}"
         fid = "f_" + hashlib.sha1(key.encode()).hexdigest()[:8]
-        if fid in gone or here and scope not in ("user", f"project:{here}"):
+        if fid in gone:
             continue
-        out.append({"id": fid, "schema": 1, "kind": r["kind"],
+        recency = 0.5 ** (max(0, now - r["last"]) / 86400 / HALF_LIFE)
+        out.append({"id": fid, "score": round(SOURCE_W[r["kind"]] * min(1, n / 3) * recency, 3),
+                    "polarity": "-" if NEG.search(r["text"]) else "+", "superseded_by": None,
+                    "_fresh": recency >= STALE, "_cw": set(_words(r["text"])) - PREF_WORDS, "schema": 1, "kind": r["kind"],
                     "scope": scope, "text": r["text"], "count": n,
                     "confidence": round(min(0.95, 0.5 + 0.15 * (n - 1)), 2),  # ponytail: evidence-count prior
                     "evidence": r["evidence"][-5:], "first_seen": day(r["first"]), "last_seen": day(r["last"]),
                     "_last": r["last"]})
-    out.sort(key=lambda r: (r["count"], r.pop("_last")), reverse=True)
+    # same subject, opposite polarity ("always use X" vs "never use X"): the newer one wins
+    # ponytail: polarity only; "use pnpm" vs "use npm" (same polarity, rival tools) isn't caught
+    for a in out:
+        for b in out:
+            if a is not b and a["scope"] == b["scope"] and a["polarity"] != b["polarity"] and b["_last"] > a["_last"] \
+                    and a["_cw"] and len(a["_cw"] & b["_cw"]) / len(a["_cw"] | b["_cw"]) >= 0.5:
+                a["superseded_by"] = b["id"]
+    for r in out:
+        r["active"] = r["count"] >= FACT_MIN and not r["superseded_by"] and r.pop("_fresh")
+        del r["_cw"]
+    out = [r for r in out if not here or r["scope"] in ("user", f"project:{here}")]
+    out.sort(key=lambda r: (r["active"], r["score"], r.pop("_last")), reverse=True)
     return out
 
 
 def render_facts(recs, cap=1200):
-    recs = [r for r in recs if r["count"] >= FACT_MIN][:12]
+    recs = [r for r in recs if r["active"]][:12]
     if not recs:
         return ""
     lines = ["# Standing preferences (footprint memory — stated by this user in past sessions; "
@@ -530,6 +591,80 @@ def forgotten():
         return set()
 
 
+REVIEW = os.path.expanduser("~/.footprint/review.json")  # your right/wrong verdicts on preferences
+
+
+def _load(path, default):
+    try:
+        return json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def evaluate(tasks, cwd):
+    """Numbers, not vibes: message mix, correction rate per month, git outcomes, own commits, rule precision."""
+    out = ["Message types: " + ", ".join(f"{k} {n}" for k, n in Counter(kind(t["prompt"]) for t in tasks).most_common())]
+    months = {}
+    for t in tasks:
+        m = months.setdefault(datetime.fromtimestamp(t["t"]).strftime("%Y-%m"), [0, 0])
+        m[0] += 1
+        m[1] += "corrected" in t
+    out.append("Correction rate (tasks you pushed back on) by month — lower is better once memory is on:")
+    out += [f"  {m}  {c / n:5.1%}  ({c}/{n})" for m, (n, c) in sorted(months.items())[-6:]]
+    edited = sorted((t for t in tasks if t["files"] and t["cwd"] and os.path.isdir(t["cwd"])), key=lambda t: -t["t"])[:200]
+    labels = Counter(git_label(t) for t in edited)
+    if edited:
+        out.append(f"Git outcome of the last {len(edited)} AI-edit tasks: kept in a commit {labels['committed']}, "
+                   f"reverted {labels['reverted']}, unknown {labels[None]}")
+    try:
+        log = subprocess.run(["git", "-C", cwd, "log", "--since=90.days", "--name-only", "--format=@%ct"],
+                             capture_output=True, text=True, timeout=5).stdout
+        root = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                              timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        log, root = "", ""
+    ai = {}
+    for t in tasks:
+        for f in t["files"]:
+            ai.setdefault(f, []).append(t["t"])
+    commits = [(int(c[0]), [os.path.join(root, f) for f in c[1:] if f]) for c in
+               (blk.strip().split("\n") for blk in log.split("@") if blk.strip())]
+    own = [c for c in commits if c[1] and not any(c[0] - 172800 <= ts <= c[0] for f in c[1] for ts in ai.get(f, ()))]
+    if commits:
+        out.append(f"Commits here in 90 days with no AI edit to their files in the 2 days before (your own code): "
+                   f"{len(own)}/{len(commits)}")
+    verdicts = _load(REVIEW, {})
+    if verdicts:
+        right = sum(verdicts.values())
+        out.append(f"Rule precision (your review): {right}/{len(verdicts)} right = {right / len(verdicts):.0%} (target 90%)")
+    else:
+        out.append("Rule precision: not reviewed yet — run `footprint memory review`")
+    return "\n".join(out)
+
+
+def review(tasks):
+    """Mark each preference right/wrong; wrong ones are forgotten. Feeds rule precision in `memory eval`."""
+    verdicts, todo = _load(REVIEW, {}), [f for f in facts(tasks) if f["id"] not in _load(REVIEW, {})]
+    if not todo:
+        return print("nothing new to review")
+    if not sys.stdin.isatty():
+        return print(f"{len(todo)} preferences to review — run `footprint memory review` in a terminal")
+    wrong = []
+    for f in todo:
+        a = input(f"x{f['count']} {f['scope'].replace('project:', '')[-30:]}: {f['text']}\n  right? [y/n/s=skip/q] ").strip().lower()
+        if a == "q":
+            break
+        if a in ("y", "n"):
+            verdicts[f["id"]] = a == "y"
+            if a == "n":
+                wrong.append(f["id"])
+    os.makedirs(os.path.dirname(REVIEW), exist_ok=True)
+    json.dump(verdicts, open(REVIEW, "w", encoding="utf-8"))
+    if wrong:
+        json.dump(sorted(forgotten() | set(wrong)), open(FORGOTTEN, "w", encoding="utf-8"))
+    print(f"saved {len(verdicts)} verdicts; forgot {len(wrong)} wrong")
+
+
 def memory_cmd(args=()):
     """`footprint memory list [--all]` — what new sessions are told about you; `forget <id>...` removes a wrong one."""
     sub, rest = (args[0] if args else "list"), list(args[1:])
@@ -543,14 +678,19 @@ def memory_cmd(args=()):
             json.dump(sorted(forgotten() | set(ids)), open(FORGOTTEN, "w", encoding="utf-8"))
             print(f"forgot {len(ids)}: never injected again")
         return
+    if sub == "eval":
+        return print(evaluate(build(), os.getcwd()))
+    if sub == "review":
+        return review(build())
     if sub != "list":
-        sys.exit("usage: footprint memory list [--all] | forget <id>...")
+        sys.exit("usage: footprint memory list [--all] | forget <id>... | review | eval")
     tasks, cwd = build(), os.getcwd()
     fs = facts(tasks, None if "--all" in rest else cwd)
     print("Standing preferences (injected at session start when seen x%d+):" % FACT_MIN)
     for f in fs:
-        mark = "on " if f["count"] >= FACT_MIN else "off"
-        print(f"  [{mark}] {f['id']}  x{f['count']}  {f['scope'].replace('project:', '')[-30:]:<30}  {f['text'][:90]}")
+        why = "on " if f["active"] else "replaced" if f["superseded_by"] else "once" if f["count"] < FACT_MIN else "stale"
+        print(f"  [{why:<8}] {f['id']}  x{f['count']}  score {f['score']:.2f}  "
+              f"{f['scope'].replace('project:', '')[-30:]:<30}  {f['text'][:90]}")
     if not fs:
         print("  (none yet)")
     print()
@@ -690,4 +830,27 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     fid = facts(pf)[0]["id"]
     json.dump([fid], open(FORGOTTEN, "w"))
     assert fid not in [f["id"] for f in facts(pf)] and len(facts(pf)) == 1
+    assert kind("do the migration") == "instruction" and kind("yes do all") == "ack" and kind("# Title\nbody") == "paste"
+    assert [kind(x) for x in ("no, use neon", "ok do it", "how does recall work", "add a footer", '{"a": 1}',
+                              "[Request interrupted by user]", "yes commit")] == \
+        ["correction", "ack", "question", "instruction", "paste", "correction", "ack"]
+    sup = [_task("x", "a", "/p", 86400, "always use tabs in python files."), _task("x", "b", "/p", 2 * 86400, "always use tabs in python files!"),
+           _task("x", "c", "/p", 9 * 86400, "never use tabs in python files."), _task("x", "d", "/p", 10 * 86400, "never use tabs in python files")]
+    fs2 = {f["text"].rstrip(".!"): f for f in facts(sup)}
+    old, new = fs2["always use tabs in python files"], fs2["never use tabs in python files"]
+    assert old["superseded_by"] == new["id"] and not old["active"] and new["active"], fs2  # newer contradiction wins
+    stale = facts(sup[:2] + [_task("x", "z", "/p", 200 * 86400, "unrelated work")])
+    assert stale[0]["count"] == 2 and not stale[0]["active"], stale  # unrepeated for ~200 days: decayed out
+    assert not render_facts(stale)
+    assert git_label({"cmds": ["git checkout -- a.py"], "files": [], "cwd": None}) == "reverted"
+    g = os.path.join(d, "g")
+    os.makedirs(g)
+    gx = lambda *a: subprocess.run(["git", "-C", g, "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True)
+    gx("init", "-q")
+    open(os.path.join(g, "a.py"), "w").write("x=1\n")
+    gx("add", "a.py")
+    gx("commit", "-q", "-m", "feat: a")
+    gt = {"cmds": [], "files": [os.path.join(g, "a.py")], "cwd": g, "t": time.time() - 60}
+    assert git_label(gt) == "committed" and git_label({**gt, "t": time.time() - 9 * 86400}) is None
+    assert "own code): 1/1" in evaluate([], g) and "Correction rate" in evaluate(pt, g)
     print("memory self-check ok")
