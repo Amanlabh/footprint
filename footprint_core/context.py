@@ -15,7 +15,8 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "edit", "write"}
 DONE = {"completed", "cancelled"}
 NOISE = ("<command-", "<task-notification>", "<local-command-", "<bash-",  # harness messages, not asks
          "# Similar past work (footprint memory", "# Your profile (footprint",
-         "# Standing preferences (footprint")  # our own recall output: never index it as a task
+         "# Standing preferences (footprint", "Context — earlier asks in this session",  # bench replay prompt
+         '"Context — earlier asks in this session')  # our own recall output: never index it as a task
 HANDOFF_END = "Continue from here if the user's next request relates; don't re-ask what's above."
 PLUGIN_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opencode_plugin.js")
 

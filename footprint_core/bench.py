@@ -89,6 +89,38 @@ def _tasks_in(path):
                     task["commit"] = m.group(1) or m.group(2)  # harvest verifies it exists in the repo
                 if not b.get("is_error") and CHECK.search(cmd) and not task["check"]:
                     task["check"] = cmd  # same command may also commit: `tsc --noEmit && git commit`
+    return _resolve(out)
+
+
+def _oc_tasks(db, sid, cwd):
+    """OpenCode session -> candidate tasks, same shape as _tasks_in (commit/check read from bash parts)."""
+    roles = {mid: json.loads(d).get("role") for mid, d in db.execute("select id, data from message where session_id = ?", (sid,))}
+    out, cur = [], None
+    for mid, created, d in db.execute("select message_id, time_created, data from part where session_id = ? "
+                                      "order by time_created, id", (sid,)):
+        p = json.loads(d)
+        if p.get("type") == "text" and not p.get("synthetic") and roles.get(mid) == "user" and (p.get("text") or "").strip():
+            t = context._strip_handoff(p["text"].strip())
+            if t and not t.startswith(context.NOISE):
+                cur = {"sid": sid, "prompt": t, "cwd": cwd, "commit": None, "check": None, "files": [],
+                       "t": created / 1000, "history": [x["prompt"][:400] for x in out[-3:]]}
+                out.append(cur)
+        elif p.get("type") == "tool" and cur:
+            st = p.get("state") or {}
+            inp = st.get("input") or {}
+            if p.get("tool") in context.EDIT_TOOLS and inp.get("filePath") and inp["filePath"] not in cur["files"]:
+                cur["files"].append(inp["filePath"])
+            cmd = inp.get("command") or ""
+            if p.get("tool") == "bash" and st.get("status") == "completed":
+                if "git commit" in cmd and (m := COMMIT.search(str(st.get("output") or ""))):
+                    cur["commit"] = m.group(1) or m.group(2)
+                if CHECK.search(cmd) and not cur["check"] and not re.search(r"\berror\b|failed", str(st.get("output") or "")[-400:], re.I):
+                    cur["check"] = cmd  # ponytail: OpenCode has no is_error flag; output tail heuristic
+    return _resolve(out)
+
+
+def _resolve(out):
+    """Tasks committed in a later turn get their commit via git; drop ones a replay can't use."""
     for t in out:  # committed in a later turn ("yes commit")? find it via git: first commit touching its files
         if not t["commit"] and t["files"] and t["t"] and t["cwd"] and os.path.isdir(t["cwd"]):
             hit = _git(t["cwd"], "log", f"--since=@{int(t['t'])}", f"--until=@{int(t['t']) + 172800}", "--reverse",
@@ -165,31 +197,28 @@ def harvest(argv=()):
     names = {os.path.basename(f) for f in live}  # plus archived copies of sessions Claude Code deleted
     files = sorted(live + [a for a in glob.glob(os.path.join(ARCHIVE, "*", "*.jsonl")) if os.path.basename(a) not in names],
                    key=os.path.getmtime, reverse=True)
-    for f in files:
-        if time.time() - os.path.getmtime(f) < ACTIVE_S:
+    for t in (t for batch in _candidates(files) for t in batch):
+        if t["commit"] in seen:
             continue
-        for t in _tasks_in(f):
-            root = _git(t["cwd"], "rev-parse", "--show-toplevel").stdout.strip() if os.path.isdir(t["cwd"]) else ""
-            if not root or t["commit"] in seen:
-                continue
-            parent = _git(root, "rev-parse", f"{t['commit']}^").stdout.strip()
-            t["check_dir"], t["check_cmd"] = _check_cmd(t["check"], t["cwd"], root) if t["check"] else (None, None)
-            if not t["check_cmd"]:
-                t["check_dir"], t["check_cmd"] = _default_check(t["cwd"], root)
-            if not parent or not t["check_cmd"]:
-                continue
-            t.update(root=root, parent=parent,
-                     claude_files=_git(root, "diff", "--name-only", parent, t["commit"]).stdout.split())
-            wt = _worktree(root, t["commit"])
-            ok = wt and _run_check(wt, t)
-            if wt:
-                _drop(root, wt)
-            if ok and t["claude_files"]:
-                seen.add(t["commit"])
-                found.append(t)
-                print(f"  ✓ {os.path.basename(root)} {t['commit'][:7]}  {t['prompt'][:70]!r}")
-            if len(found) >= n:
-                break
+        root = _git(t["cwd"], "rev-parse", "--show-toplevel").stdout.strip() if os.path.isdir(t["cwd"]) else ""
+        if not root:
+            continue
+        parent = _git(root, "rev-parse", f"{t['commit']}^").stdout.strip()
+        t["check_dir"], t["check_cmd"] = _check_cmd(t["check"], t["cwd"], root) if t["check"] else (None, None)
+        if not t["check_cmd"]:
+            t["check_dir"], t["check_cmd"] = _default_check(t["cwd"], root)
+        if not parent or not t["check_cmd"]:
+            continue
+        t.update(root=root, parent=parent,
+                 claude_files=_git(root, "diff", "--name-only", parent, t["commit"]).stdout.split())
+        wt = _worktree(root, t["commit"])
+        ok = wt and _run_check(wt, t)
+        if wt:
+            _drop(root, wt)
+        if ok and t["claude_files"]:
+            seen.add(t["commit"])
+            found.append(t)
+            print(f"  ✓ {os.path.basename(root)} {t['commit'][:7]}  {t['prompt'][:70]!r}")
         if len(found) >= n:
             break
     os.makedirs(HOME, exist_ok=True)
@@ -197,7 +226,27 @@ def harvest(argv=()):
     open(HOLDOUT, "w").write("\n".join(sorted({t["sid"] for t in found})) + "\n")
     print(f"{len(found)} held-out tasks -> {TASKS}\n(their sessions are now excluded from memory + collect)")
     if len(found) < 5:
-        print("few tasks: the bench needs Claude sessions that ran a check and ended in a git commit")
+        print("few tasks: the bench needs sessions (Claude Code or OpenCode) whose work ended in a git commit")
+
+
+def _candidates(files):
+    """Claude transcripts (newest first), then OpenCode sessions: each yields a list of candidate tasks."""
+    for f in files:
+        if time.time() - os.path.getmtime(f) >= ACTIVE_S:
+            yield _tasks_in(f)
+    if not os.path.exists(config.OPENCODE_DB):
+        return
+    import sqlite3
+    try:
+        db = sqlite3.connect(f"file:{config.OPENCODE_DB}?mode=ro", uri=True)
+        rows = db.execute("select id, directory from session where parent_id is null and time_archived is null "
+                          "and time_updated < ? order by time_updated desc", ((time.time() - ACTIVE_S) * 1000,)).fetchall()
+        for sid, cwd in rows:
+            if not os.path.basename(cwd or "").startswith("fp-bench-"):  # never bench a bench replay
+                yield _oc_tasks(db, sid, cwd)
+        db.close()
+    except (sqlite3.Error, json.JSONDecodeError):
+        return  # OpenCode schema changed: Claude-only bench
 
 
 def _prompt_for(t):
@@ -344,6 +393,7 @@ if __name__ == "__main__":  # self-check: real throwaway git repo + fake Claude 
     config.PROJECTS, HOME = os.path.join(d, "projects"), os.path.join(d, "bench")
     from . import memory as _m
     _m.ARCHIVE = os.path.join(d, "archive")  # never the real archive
+    config.OPENCODE_DB = os.path.join(d, "none.db")  # nor the real OpenCode db
     TASKS, HOLDOUT, RESULTS = (os.path.join(HOME, x) for x in ("tasks.json", "holdout.txt", "results.json"))
     CHECK = re.compile(r"ruff check")
     _check_cmd = lambda c, cwd, root: (".", 'python3 -c "import m; assert m.f() == 2"')
@@ -369,4 +419,15 @@ if __name__ == "__main__":  # self-check: real throwaway git repo + fake Claude 
     assert open(os.path.join(repo, "m.py")).read() == "def f():\n    return 2\n"
     _drop(repo, iso)
     assert not os.path.exists(iso) and _git(repo, "worktree", "list").stdout.count("\n") == 1
+    import sqlite3
+    odb = sqlite3.connect(os.path.join(d, "oc.db"))
+    odb.executescript("create table message (id, session_id, data); create table part (id, message_id, session_id, time_created, data);")
+    odb.execute("insert into message values ('m1','o1',?), ('m2','o1',?)", (json.dumps({"role": "user"}), json.dumps({"role": "assistant"})))
+    for i, (mid, data) in enumerate([("m1", {"type": "text", "text": "make f return 2"}),
+                                     ("m2", {"type": "tool", "tool": "edit", "state": {"input": {"filePath": f"{repo}/m.py"}}}),
+                                     ("m2", {"type": "tool", "tool": "bash", "state": {"status": "completed", "input": {"command": "ruff check m.py"}, "output": "All checks passed!"}}),
+                                     ("m2", {"type": "tool", "tool": "bash", "state": {"status": "completed", "input": {"command": "git commit -am x"}, "output": f"[main {sha}] x"}})]):
+        odb.execute("insert into part values (?,?,?,?,?)", (f"p{i}", mid, "o1", 1000 + i, json.dumps(data)))
+    oc = _oc_tasks(odb, "o1", repo)
+    assert len(oc) == 1 and oc[0]["commit"] == sha and oc[0]["check"] == "ruff check m.py" and oc[0]["files"] == [f"{repo}/m.py"], oc
     print("bench self-check ok")

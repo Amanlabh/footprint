@@ -21,7 +21,7 @@ FORGOTTEN = os.path.expanduser("~/.footprint/forgotten.json")  # fact ids the us
 ARCHIVE = os.path.expanduser("~/.footprint/archive")  # redacted copies: outlive Claude Code's transcript cleanup
 ARCHIVE_IDLE = 1800   # seconds a transcript must sit unchanged before it's copied (don't rewrite the live one per prompt)
 SHOWN = os.path.expanduser("~/.footprint/recall")  # per-session: task ids already injected
-VERSION = 2           # 2: tasks carry "corrected" (the user's pushback on them)
+VERSION = 3           # 2: tasks carry "corrected"; 3: bench replay prompts dropped
 TOP_K = 3
 MIN_SCORE = 4.0       # ponytail: fixed BM25 cutoff; tune on real prompts or switch to embeddings if recall is weak
 MIN_TERMS = 2         # need at least this many shared meaningful words
@@ -52,10 +52,15 @@ CORRECTION = re.compile(r"^\W*(no\b|nope\b|wrong\b|undo\b|revert\b|stop\b|don'?t
                         r"|(it |this )?(doesn'?t|didn'?t|isn'?t) work"
                         r"|not working\b|this is wrong\b)|\[Request interrupted", re.I)
 # standing-rule wording only; "instead of X" is almost always a one-off task instruction, not a habit
-PREF = re.compile(r"\b(always|never|from now on|i prefer|prefer to|don'?t use|dont use|do not use|stop using)\b", re.I)
+PREF = re.compile(r"\b(always|never|from now on|i prefer|prefer to|don'?t use|dont use|do not use|stop using)\b(?!-)", re.I)
 FACT_MIN = 2          # a preference must recur across tasks before it is injected: once = a task, twice = a pattern
 NEG = re.compile(r"\b(never|don'?t use|dont use|do not use|stop using)\b", re.I)
 PREF_WORDS = set("always never prefer from don dont do not stop use using i to on".split())
+RIVALS = [{"npm", "pnpm", "yarn", "bun"}, {"pip", "uv", "poetry", "pipenv", "conda"}, {"jest", "vitest", "mocha"},
+          {"prettier", "biome"}, {"black", "ruff"}, {"eslint", "biome", "oxlint"}, {"postgres", "postgresql", "mysql", "sqlite", "neon", "supabase", "mongodb", "mongo"},
+          {"tailwind", "bootstrap", "chakra", "mui"}, {"redux", "zustand", "jotai", "mobx"}, {"axios", "fetch"},
+          {"vercel", "netlify", "render", "railway", "fly"}, {"prisma", "drizzle", "typeorm", "sequelize"},
+          {"tabs", "spaces"}, {"single", "double"}, {"claude", "opencode", "cursor"}]  # ponytail: hand list; grow as misses show up
 HALF_LIFE = 60        # days: an unrepeated preference loses half its weight every ~2 months
 STALE = 0.25          # recency below this (~4 months unseen) = no longer injected
 SOURCE_W = {"correction": 0.8, "preference": 0.5}  # repo config (1.0) lives in repo(), always fresh
@@ -151,7 +156,7 @@ def opencode_tasks(db, sid, cwd):
         if p.get("type") == "text" and not p.get("synthetic") and (p.get("text") or "").strip():
             if roles.get(mid) == "user":
                 t = context._strip_handoff(p["text"].strip())
-                if t:
+                if t and not t.startswith(context.NOISE):  # bench replays / our own injected text aren't your asks
                     cur = _task("OpenCode", sid, cwd, created / 1000, t)
                     tasks.append(cur)
             elif cur:
@@ -240,7 +245,7 @@ def build(skip_sid=None):
             try:
                 for sid, cwd, upd in db.execute("select id, directory, time_updated from session "
                                                 "where parent_id is null and time_archived is null"):
-                    if os.path.basename(cwd or "").startswith("fp-bench-"):
+                    if os.path.basename(cwd or "").startswith("fp-bench-") or sid in held:
                         idx["opencode"].pop(sid, None)  # bench replays are tests, not your work
                         continue
                     if sid != skip_sid and idx["opencode"].get(sid, [0])[0] != upd:
@@ -517,11 +522,11 @@ def facts(tasks, cwd=None):
     seen in 2+ projects = user scope, else project scope. cwd filters to user + that project."""
     recs = {}
     for t in tasks:
-        if kind(t["prompt"]) == "paste":
-            continue  # a pasted doc's rules aren't the user's
+        if kind(t["prompt"]) == "paste" or TEMP_PATH.match(t["cwd"] or "") or "/scratchpad" in (t["cwd"] or ""):
+            continue  # a pasted doc's rules aren't the user's; nor are test prompts run in temp folders
         for s in re.split(r"(?<=[.!?])\s+|\n", t["prompt"]):
             s = s.strip(" -*>\t")
-            if not (12 <= len(s) <= 200 and PREF.search(s)) or s.startswith(("<", "{", '"')) \
+            if not (12 <= len(s) <= 200 and len(s.split()) >= 4 and PREF.search(s)) or s.startswith(("<", "{", '"')) \
                     or s.endswith("?") or '":' in s or re.search(r"never ?mind", s, re.I):
                 continue
             key = " ".join(sorted(set(_words(s))))
@@ -556,10 +561,16 @@ def facts(tasks, cwd=None):
                     "_last": r["last"]})
     # same subject, opposite polarity ("always use X" vs "never use X"): the newer one wins
     # ponytail: polarity only; "use pnpm" vs "use npm" (same polarity, rival tools) isn't caught
+    # or same polarity, rival tools ("always use pnpm" then "always use bun"): the newer choice wins
+    picks = lambda r, g: {w for w in g if re.search(rf"\b{w}\b", r["text"], re.I)}
     for a in out:
         for b in out:
-            if a is not b and a["scope"] == b["scope"] and a["polarity"] != b["polarity"] and b["_last"] > a["_last"] \
-                    and a["_cw"] and len(a["_cw"] & b["_cw"]) / len(a["_cw"] | b["_cw"]) >= 0.5:
+            if a is b or a["scope"] != b["scope"] or b["_last"] <= a["_last"] or not a["_cw"]:
+                continue
+            flip = a["polarity"] != b["polarity"] and len(a["_cw"] & b["_cw"]) / len(a["_cw"] | b["_cw"]) >= 0.5
+            rival = a["polarity"] == b["polarity"] == "+" and any(
+                (pa := picks(a, g)) and (pb := picks(b, g)) and not pa & pb for g in RIVALS)
+            if flip or rival:
                 a["superseded_by"] = b["id"]
     for r in out:
         r["active"] = r["count"] >= FACT_MIN and not r["superseded_by"] and r.pop("_fresh")
@@ -658,14 +669,21 @@ def evaluate(tasks, cwd):
     return "\n".join(out)
 
 
-def review(tasks):
+def review(tasks, args=()):
     """Mark each preference right/wrong; wrong ones are forgotten. Feeds rule precision in `memory eval`."""
     verdicts, todo = _load(REVIEW, {}), [f for f in facts(tasks) if f["id"] not in _load(REVIEW, {})]
-    if not todo:
+    given = dict(a.split("=", 1) for a in args if "=" in a)  # footprint memory review f_ab12cd34=y f_..=n
+    if given:
+        known = {f["id"] for f in facts(tasks)}
+        for fid, v in given.items():
+            if fid in known and v in ("y", "n"):
+                verdicts[fid] = v == "y"
+        todo = []
+    elif not todo:
         return print("nothing new to review")
-    if not sys.stdin.isatty():
+    if todo and not sys.stdin.isatty():
         return print(f"{len(todo)} preferences to review — run `footprint memory review` in a terminal")
-    wrong = []
+    wrong = [fid for fid, v in given.items() if v == "n" and fid in verdicts]
     for f in todo:
         a = input(f"x{f['count']} {f['scope'].replace('project:', '')[-30:]}: {f['text']}\n  right? [y/n/s=skip/q] ").strip().lower()
         if a == "q":
@@ -697,7 +715,7 @@ def memory_cmd(args=()):
     if sub == "eval":
         return print(evaluate(build(), os.getcwd()))
     if sub == "review":
-        return review(build())
+        return review(build(), rest)
     if sub != "list":
         sys.exit("usage: footprint memory list [--all] | forget <id>... | review | eval")
     tasks, cwd = build(), os.getcwd()
@@ -855,9 +873,17 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     fs2 = {f["text"].rstrip(".!"): f for f in facts(sup)}
     old, new = fs2["always use tabs in python files"], fs2["never use tabs in python files"]
     assert old["superseded_by"] == new["id"] and not old["active"] and new["active"], fs2  # newer contradiction wins
+    rv = [_task("x", "a", "/p", 86400, "always use pnpm for installs"), _task("x", "b", "/p", 2 * 86400, "always use pnpm for installs."),
+          _task("x", "c", "/p", 9 * 86400, "from now on always use bun for installs"), _task("x", "d", "/p", 10 * 86400, "from now on always use bun for installs."),
+          _task("x", "e", "/p", 11 * 86400, "always use vitest for tests"), _task("x", "f", "/p", 12 * 86400, "always use vitest for tests.")]
+    fr = {f["text"].rstrip("."): f for f in facts(rv)}
+    assert fr["always use pnpm for installs"]["superseded_by"] == fr["from now on always use bun for installs"]["id"], fr
+    assert fr["always use vitest for tests"]["active"] and fr["from now on always use bun for installs"]["active"]  # other group untouched
     stale = facts(sup[:2] + [_task("x", "z", "/p", 200 * 86400, "unrelated work")])
     assert stale[0]["count"] == 2 and not stale[0]["active"], stale  # unrepeated for ~200 days: decayed out
     assert not render_facts(stale)
+    assert not facts([_task("x", "a", "/p", 1, "An always-on service avoids cold starts."), _task("x", "b", "/p", 2, "never overwritten."),
+                      _task("x", "c", "/private/tmp/x/scratchpad/octest", 3, "Do not use tools at all.")])
     assert git_label({"cmds": ["git checkout -- a.py"], "files": [], "cwd": None}) == "reverted"
     g = os.path.join(d, "g")
     os.makedirs(g)
