@@ -214,6 +214,7 @@ def install():
         hooks[:] = [e for e in hooks if not any(f'footprint.py" {sub}' in h.get("command", "")
                                                 for h in e.get("hooks", []))]
         hooks.append({**entry, "hooks": [{"type": "command", "command": f'"{sys.executable}" "{config.ENTRY}" {sub}'}]})
+    cfg.setdefault("cleanupPeriodDays", 3650)  # Claude Code deletes transcripts after 30 days by default; never override a user's choice
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
@@ -234,6 +235,7 @@ def install():
           f"memory on — each prompt gets similar past work from {n} indexed tasks.\n"
           + (f"semantic recall on ({config.EMBED_MODEL}).\n" if emb else
              f"semantic recall off — for it: ollama pull {config.EMBED_MODEL} && footprint recall --embed\n")
+          + "archive on — redacted copies of every session in ~/.footprint/archive (Claude Code keeps transcripts 10y unless you set otherwise).\n"
           + "profile on — new sessions get preferences you repeated (footprint facts) + habits and this project's memory (footprint profile).\n"
           f"  claude code: SessionStart + UserPromptSubmit hooks in {path}\n"
           f"  opencode:    auto via plugin {plugin}\n"

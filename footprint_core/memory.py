@@ -17,6 +17,8 @@ from . import bench, config, context, transcripts
 
 INDEX = os.path.expanduser("~/.footprint/memory.json")
 EMBEDS = os.path.expanduser("~/.footprint/embed.json")
+ARCHIVE = os.path.expanduser("~/.footprint/archive")  # redacted copies: outlive Claude Code's transcript cleanup
+ARCHIVE_IDLE = 1800   # seconds a transcript must sit unchanged before it's copied (don't rewrite the live one per prompt)
 SHOWN = os.path.expanduser("~/.footprint/recall")  # per-session: task ids already injected
 VERSION = 2           # 2: tasks carry "corrected" (the user's pushback on them)
 TOP_K = 3
@@ -154,6 +156,36 @@ def _link(tasks):
     return tasks
 
 
+def _redact_obj(o):
+    """Redact every string inside parsed JSON: regex on the raw line could eat quotes and break the record."""
+    if isinstance(o, str):
+        return _redact(o)
+    if isinstance(o, list):
+        return [_redact_obj(x) for x in o]
+    if isinstance(o, dict):
+        return {k: _redact_obj(v) for k, v in o.items()}
+    return o
+
+
+def archive(files):
+    """Redacted copy of each idle Claude transcript under ARCHIVE/<project>/<sid>.jsonl; recopied when it changes."""
+    now = time.time()
+    for f in files:
+        m = os.path.getmtime(f)
+        dst = os.path.join(ARCHIVE, os.path.basename(os.path.dirname(f)), os.path.basename(f))
+        if now - m < ARCHIVE_IDLE or (os.path.exists(dst) and os.path.getmtime(dst) >= m):
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(f, encoding="utf-8", errors="replace") as src, open(dst + ".tmp", "w", encoding="utf-8") as out:
+            for line in src:
+                try:
+                    out.write(json.dumps(_redact_obj(json.loads(line))) + "\n")
+                except json.JSONDecodeError:
+                    pass
+        os.replace(dst + ".tmp", dst)
+        os.utime(dst, (m, m))  # same mtime as the source = up to date
+
+
 def build(skip_sid=None):
     """Incremental index refresh: re-parse only sessions that changed since last time."""
     try:
@@ -163,7 +195,10 @@ def build(skip_sid=None):
     except (OSError, ValueError):
         idx = {"v": VERSION, "claude": {}, "opencode": {}}
     seen, held = set(), bench.holdout()  # bench answer key must never leak into memory
-    for f in glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl")):
+    live = glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl"))
+    archive(live)
+    names = {os.path.basename(f) for f in live}  # archived copies stand in only once Claude Code deleted the original
+    for f in live + [a for a in glob.glob(os.path.join(ARCHIVE, "*", "*.jsonl")) if os.path.basename(a) not in names]:
         seen.add(f)
         m = os.path.getmtime(f)
         if os.path.basename(f) in (f"{skip_sid}.jsonl", *(f"{h}.jsonl" for h in held)):
@@ -537,4 +572,14 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     assert [f["text"] for f in facts(pf, "/p1")] == ["always use pnpm in this repo!"]  # /p3 fact out of scope
     assert "pnpm" in render_facts(fs) and "any for types" not in render_facts(fs)  # seen once: not injected
     assert render_facts([]) == "" and not facts([_task("x", "e", "/p", 1, "should we always use pnpm?")])
+    ARCHIVE, live_dir = os.path.join(d, "archive"), os.path.join(d, "proj")
+    os.makedirs(live_dir)
+    src = os.path.join(live_dir, "s9.jsonl")
+    open(src, "w").write(json.dumps({"type": "user", "message": {"content": "export GITHUB_TOKEN=abc123 then deploy"}}) + "\nbad\n")
+    os.utime(src, (time.time() - 4000,) * 2)
+    archive([src])
+    arc = os.path.join(ARCHIVE, "proj", "s9.jsonl")
+    got = [json.loads(x) for x in open(arc)]
+    assert len(got) == 1 and "abc123" not in got[0]["message"]["content"] and "deploy" in got[0]["message"]["content"], got
+    assert os.path.getmtime(arc) == os.path.getmtime(src)
     print("memory self-check ok")
