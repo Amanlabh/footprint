@@ -69,14 +69,17 @@ def _tasks_in(path):
         p = context._prompt(rec)
         if p:
             # earlier asks travel with the task, like footprint's handover would ("yes implement this")
-            cur = {"sid": sid, "prompt": p, "cwd": rec.get("cwd"), "commit": None, "check": None,
-                   "history": [t["prompt"][:400] for t in out[-3:]]}
+            cur = {"sid": sid, "prompt": p, "cwd": rec.get("cwd"), "commit": None, "check": None, "files": [],
+                   "t": _ts(rec), "history": [t["prompt"][:400] for t in out[-3:]]}
             out.append(cur)
             continue
         content = (rec.get("message") or {}).get("content")
         if not cur or rec.get("isSidechain") or not isinstance(content, list):
             continue
         for b in content:
+            f = (b.get("input") or {}).get("file_path") if b.get("type") == "tool_use" else None
+            if f and b.get("name") in context.EDIT_TOOLS and f not in cur["files"]:
+                cur["files"].append(f)
             if b.get("type") == "tool_use" and b.get("name") == "Bash":
                 pending[b.get("id")] = (cur, (b.get("input") or {}).get("command", ""))
             elif b.get("type") == "tool_result" and b.get("tool_use_id") in pending:
@@ -86,9 +89,40 @@ def _tasks_in(path):
                     task["commit"] = m.group(1) or m.group(2)  # harvest verifies it exists in the repo
                 if not b.get("is_error") and CHECK.search(cmd) and not task["check"]:
                     task["check"] = cmd  # same command may also commit: `tsc --noEmit && git commit`
-    return [t for t in out if t["commit"] and t["check"] and t["cwd"]
+    for t in out:  # committed in a later turn ("yes commit")? find it via git: first commit touching its files
+        if not t["commit"] and t["files"] and t["t"] and t["cwd"] and os.path.isdir(t["cwd"]):
+            hit = _git(t["cwd"], "log", f"--since=@{int(t['t'])}", f"--until=@{int(t['t']) + 172800}", "--reverse",
+                       "--format=%h", "--", *t["files"]).stdout.split()
+            t["commit"] = hit[0] if hit else None
+    return [t for t in out if t["commit"] and t["cwd"]
             and not IMAGE.search(t["prompt"])  # a replayed model can't see the screenshot
             and not SIDE_EFFECT.search(t["prompt"])]
+
+
+def _ts(rec):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(rec["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError):
+        return None
+
+
+def _default_check(cwd, root):
+    """No check in the session? Use the repo's own: typecheck script, tsc, pytest. -> (subdir, cmd) or (None, None)"""
+    for d in dict.fromkeys([cwd, root]):  # task folder first, then repo root
+        rel = os.path.relpath(d, root)
+        try:
+            scripts = json.load(open(os.path.join(d, "package.json"))).get("scripts") or {}
+        except (OSError, ValueError):
+            scripts = {}
+        if "typecheck" in scripts:
+            return rel, "npm run typecheck"
+        if os.path.exists(os.path.join(d, "tsconfig.json")):
+            return rel, "npx tsc --noEmit"
+        if any(os.path.exists(os.path.join(d, f)) for f in ("pytest.ini", "conftest.py")) \
+                or "[tool.pytest" in (open(os.path.join(d, "pyproject.toml")).read() if os.path.exists(os.path.join(d, "pyproject.toml")) else ""):
+            return rel, "python3 -m pytest -q"
+    return None, None
 
 
 def _worktree(root, rev):
@@ -126,7 +160,11 @@ def harvest(argv=()):
     """Newest qualifying tasks whose check really passes at Claude's commit -> held-out set."""
     n = int(argv[0]) if argv and argv[0].isdigit() else 20
     found, seen = [], set()
-    files = sorted(glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl")), key=os.path.getmtime, reverse=True)
+    from .memory import ARCHIVE
+    live = glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl"))
+    names = {os.path.basename(f) for f in live}  # plus archived copies of sessions Claude Code deleted
+    files = sorted(live + [a for a in glob.glob(os.path.join(ARCHIVE, "*", "*.jsonl")) if os.path.basename(a) not in names],
+                   key=os.path.getmtime, reverse=True)
     for f in files:
         if time.time() - os.path.getmtime(f) < ACTIVE_S:
             continue
@@ -135,7 +173,9 @@ def harvest(argv=()):
             if not root or t["commit"] in seen:
                 continue
             parent = _git(root, "rev-parse", f"{t['commit']}^").stdout.strip()
-            t["check_dir"], t["check_cmd"] = _check_cmd(t["check"], t["cwd"], root)
+            t["check_dir"], t["check_cmd"] = _check_cmd(t["check"], t["cwd"], root) if t["check"] else (None, None)
+            if not t["check_cmd"]:
+                t["check_dir"], t["check_cmd"] = _default_check(t["cwd"], root)
             if not parent or not t["check_cmd"]:
                 continue
             t.update(root=root, parent=parent,
@@ -302,6 +342,8 @@ if __name__ == "__main__":  # self-check: real throwaway git repo + fake Claude 
     assert len(ts) == 1 and ts[0]["commit"] == sha and "ruff check" in ts[0]["check"], ts
     # harvest + run against the fake repo, with the check swapped for one python can verify
     config.PROJECTS, HOME = os.path.join(d, "projects"), os.path.join(d, "bench")
+    from . import memory as _m
+    _m.ARCHIVE = os.path.join(d, "archive")  # never the real archive
     TASKS, HOLDOUT, RESULTS = (os.path.join(HOME, x) for x in ("tasks.json", "holdout.txt", "results.json"))
     CHECK = re.compile(r"ruff check")
     _check_cmd = lambda c, cwd, root: (".", 'python3 -c "import m; assert m.f() == 2"')

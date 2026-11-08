@@ -1,5 +1,5 @@
 """Parse Claude Code transcripts into training examples."""
-import glob, json, os, random, re, sys
+import glob, json, os, random, re, subprocess, sys
 
 from . import config
 
@@ -113,6 +113,31 @@ def collect(project=None):
                 examples.append(ex)
             if examples:
                 sessions.append((os.path.getmtime(f), examples))
+    # your own commits (no AI edit to those files in the 2 days before): best style signal there is
+    from .memory import build, own_commits
+    tasks = build()
+    scope = [project or os.getcwd()] if os.path.isdir(pdir) else sorted({t["cwd"] for t in tasks if t["cwd"]})
+    roots = {}
+    for c in scope:
+        if os.path.isdir(c):
+            r = subprocess.run(["git", "-C", c, "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+            if r:
+                roots[r] = True
+    mine, done = 0, set()
+    for root in roots:
+        for ts, h, subj in own_commits(tasks, root, days=365)[0]:
+            if h in done:
+                continue  # same repo via a worktree
+            done.add(h)
+            diff = subprocess.run(["git", "-C", root, "show", "--format=", "-U3", h], capture_output=True, text=True,
+                                  errors="replace").stdout
+            if not diff.strip() or len(diff) > config.CTX_BUDGET or "Binary files" in diff:
+                continue
+            msgs = [{"role": "system", "content": config.SYSTEM},
+                    {"role": "user", "content": _redact(f"In {os.path.basename(root)}: {subj}\nWrite the change as a unified diff.")},
+                    {"role": "assistant", "content": _redact(diff)}]
+            sessions.append((ts, [{"messages": msgs}]))
+            mine += 1
     if len(sessions) < 3:
         hint = " (trace marker active — only sessions after `trace` count; delete ~/.claude/footprint-trace for all history)" if since else ""
         sys.exit(f"need at least 3 sessions with accepted work under {config.PROJECTS}, found {len(sessions)}{hint}")
@@ -129,5 +154,6 @@ def collect(project=None):
             fh.writelines(json.dumps(e) + "\n" for e in exs)
     print(f"collected {sum(counts.values())} accepted examples from {len(sessions)} sessions "
           f"({counts['train']} train / {counts['valid']} valid / {counts['test']} test, split by session, newest = test)\n"
-          f"  dropped {dropped} turns the user corrected or interrupted · {dupes} duplicates · secrets redacted\n"
+          f"  includes {mine} of your own commits as diffs · dropped {dropped} turns the user corrected or interrupted"
+          f" · {dupes} duplicates · secrets redacted\n"
           f"  -> {config.DATA}")

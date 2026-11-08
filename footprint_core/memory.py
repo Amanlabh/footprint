@@ -601,6 +601,35 @@ def _load(path, default):
         return default
 
 
+def own_commits(tasks, cwd, days=90, mine_only=True):
+    """Commits in cwd's repo with no AI edit to their files in the 2 days before = code you wrote yourself.
+    -> ([(commit time, hash, subject)], total commits looked at). mine_only = authored by this repo's git user."""
+    g = lambda *a: subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True, timeout=10).stdout
+    try:
+        root = g("rev-parse", "--show-toplevel").strip()
+        me = g("config", "user.email").strip() if mine_only else ""
+        if not root or (mine_only and not me):
+            return [], 0
+        log = g("log", f"--since={days}.days", "--no-merges", "--name-only", "--format=\x01%ct %h %s",
+                "-i", "--invert-grep", "--grep=Co-Authored-By: Claude", "--grep=Generated with \\[Claude",
+                *([f"--author={me}"] if me else []))  # AI-attributed commits aren't yours, even if edited via shell
+    except (OSError, subprocess.SubprocessError):
+        return [], 0
+    ai = {}
+    for t in tasks:
+        for f in t["files"]:
+            ai.setdefault(os.path.realpath(f), []).append(t["t"])  # /var vs /private/var, symlinked repos
+    own, total = [], 0
+    for blk in log.split("\x01")[1:]:
+        head, *files = blk.strip().split("\n")
+        ts, h, subj = (head.split(" ", 2) + ["", ""])[:3]
+        files = [os.path.realpath(os.path.join(root, f)) for f in files if f]
+        total += 1
+        if files and not any(int(ts) - 172800 <= x <= int(ts) for f in files for x in ai.get(f, ())):
+            own.append((int(ts), h, subj))
+    return own, total
+
+
 def evaluate(tasks, cwd):
     """Numbers, not vibes: message mix, correction rate per month, git outcomes, own commits, rule precision."""
     out = ["Message types: " + ", ".join(f"{k} {n}" for k, n in Counter(kind(t["prompt"]) for t in tasks).most_common())]
@@ -616,23 +645,10 @@ def evaluate(tasks, cwd):
     if edited:
         out.append(f"Git outcome of the last {len(edited)} AI-edit tasks: kept in a commit {labels['committed']}, "
                    f"reverted {labels['reverted']}, unknown {labels[None]}")
-    try:
-        log = subprocess.run(["git", "-C", cwd, "log", "--since=90.days", "--name-only", "--format=@%ct"],
-                             capture_output=True, text=True, timeout=5).stdout
-        root = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                              timeout=2).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        log, root = "", ""
-    ai = {}
-    for t in tasks:
-        for f in t["files"]:
-            ai.setdefault(f, []).append(t["t"])
-    commits = [(int(c[0]), [os.path.join(root, f) for f in c[1:] if f]) for c in
-               (blk.strip().split("\n") for blk in log.split("@") if blk.strip())]
-    own = [c for c in commits if c[1] and not any(c[0] - 172800 <= ts <= c[0] for f in c[1] for ts in ai.get(f, ()))]
-    if commits:
+    own, total = own_commits(tasks, cwd, days=90, mine_only=False)
+    if total:
         out.append(f"Commits here in 90 days with no AI edit to their files in the 2 days before (your own code): "
-                   f"{len(own)}/{len(commits)}")
+                   f"{len(own)}/{total}")
     verdicts = _load(REVIEW, {})
     if verdicts:
         right = sum(verdicts.values())
@@ -853,4 +869,11 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     gt = {"cmds": [], "files": [os.path.join(g, "a.py")], "cwd": g, "t": time.time() - 60}
     assert git_label(gt) == "committed" and git_label({**gt, "t": time.time() - 9 * 86400}) is None
     assert "own code): 1/1" in evaluate([], g) and "Correction rate" in evaluate(pt, g)
+    gx("config", "user.email", "t@t")
+    open(os.path.join(g, "b.py"), "w").write("y=2\n")
+    gx("add", "b.py")
+    gx("commit", "-q", "-m", "feat: b\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+    own, total = own_commits([], g, days=1)
+    assert total == 1 and own[0][2] == "feat: a", own  # authored by this repo's git user (t@t)
+    assert own_commits([{"files": [os.path.join(g, "a.py")], "t": time.time() - 30}], g, days=1)[0] == []  # AI edit before
     print("memory self-check ok")
