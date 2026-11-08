@@ -9,7 +9,7 @@ plugin adds to the conversation.
 
   footprint recall "add a year limit to the date picker"   # try it by hand
 """
-import glob, hashlib, json, math, os, re, sqlite3, sys, time, urllib.request
+import glob, hashlib, json, math, os, re, sqlite3, subprocess, sys, time, urllib.request
 from collections import Counter
 from datetime import datetime
 
@@ -17,6 +17,7 @@ from . import bench, config, context, transcripts
 
 INDEX = os.path.expanduser("~/.footprint/memory.json")
 EMBEDS = os.path.expanduser("~/.footprint/embed.json")
+FORGOTTEN = os.path.expanduser("~/.footprint/forgotten.json")  # fact ids the user removed (footprint memory forget)
 ARCHIVE = os.path.expanduser("~/.footprint/archive")  # redacted copies: outlive Claude Code's transcript cleanup
 ARCHIVE_IDLE = 1800   # seconds a transcript must sit unchanged before it's copied (don't rewrite the live one per prompt)
 SHOWN = os.path.expanduser("~/.footprint/recall")  # per-session: task ids already injected
@@ -376,6 +377,60 @@ def _heads(cmd):
     return heads
 
 
+LOCKS = (("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "bun"), ("bun.lock", "bun"),
+         ("package-lock.json", "npm"), ("uv.lock", "uv"), ("poetry.lock", "poetry"), ("Pipfile.lock", "pipenv"))
+CONVENTIONAL = re.compile(r"^(\w+)(\([^)]*\))?!?: ")
+
+
+def _read(path):
+    try:
+        return open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+
+
+def repo(cwd):
+    """Facts read from the repo itself, not chat: what you actually do. Fresh every session start, never stale."""
+    has = lambda *names: any(glob.glob(os.path.join(cwd, n)) for n in names)
+    out = []
+    stack = sorted({v for k, v in MARKERS.items() if os.path.exists(os.path.join(cwd, k))})
+    if stack:
+        out.append("Stack: " + ", ".join(stack))
+    pms = [pm for f, pm in LOCKS if os.path.exists(os.path.join(cwd, f))]
+    if pms:
+        out.append(f"Package manager: {pms[0]} (lockfile)")
+    try:
+        scripts = json.loads(_read(os.path.join(cwd, "package.json")) or "{}").get("scripts") or {}
+    except ValueError:
+        scripts = {}
+    run = pms[0] if pms and pms[0] in ("pnpm", "yarn", "bun") else "npm run"
+    keep = [k for k in ("dev", "build", "test", "lint", "typecheck", "format") if k in scripts]
+    if keep:
+        out.append("Scripts: " + ", ".join(f"`{run} {k}`" for k in keep))
+    py = _read(os.path.join(cwd, "pyproject.toml"))
+    tools = [name for name, hit in (
+        ("pytest", "[tool.pytest" in py or has("pytest.ini", "conftest.py")),
+        ("ruff", "[tool.ruff" in py or has("ruff.toml", ".ruff.toml")), ("black", "[tool.black" in py),
+        ("mypy", "[tool.mypy" in py or has("mypy.ini")),
+        ("prettier", has(".prettierrc*", "prettier.config.*") or '"prettier"' in _read(os.path.join(cwd, "package.json"))),
+        ("eslint", has(".eslintrc*", "eslint.config.*")), ("biome", has("biome.json", "biome.jsonc"))) if hit]
+    if re.search(r'"strict"\s*:\s*true', _read(os.path.join(cwd, "tsconfig.json"))):
+        tools.append("TypeScript strict")
+    if tools:
+        out.append("Checks/format: " + ", ".join(tools))
+    try:
+        subj = subprocess.run(["git", "-C", cwd, "log", "-50", "--format=%s"], capture_output=True,
+                              text=True, timeout=3).stdout.split("\n")
+    except (OSError, subprocess.SubprocessError):
+        subj = []
+    subj = [x for x in subj if x and not x.startswith("Merge ")]
+    conv = [m.group(1) for m in map(CONVENTIONAL.match, subj) if m]
+    if subj and len(conv) >= 0.6 * len(subj):
+        out.append("Commits: conventional (" + ", ".join(k for k, _ in Counter(conv).most_common(4))
+                   + f"), e.g. \"{subj[0][:70]}\"")
+    return out
+
+
 def profile(tasks, cwd=None):
     """Session-start block: who you are as a developer + what this project is. '' when nothing learned."""
     here = [t for t in tasks if cwd and t["cwd"] and os.path.abspath(t["cwd"]) == os.path.abspath(cwd)]
@@ -389,11 +444,9 @@ def profile(tasks, cwd=None):
         habits.append("you mostly edit: " + ", ".join(k for k, _ in exts))
     if habits:
         out.append("Habits: " + "; ".join(habits))
-    if here:
-        proj = [f"## This project: {os.path.basename(os.path.abspath(cwd))} ({len(here)} past tasks)"]
-        stack = sorted({v for k, v in MARKERS.items() if os.path.exists(os.path.join(cwd, k))})
-        if stack:
-            proj.append("Stack: " + ", ".join(stack))
+    from_repo = repo(cwd) if cwd and os.path.isdir(cwd) else []
+    if here or from_repo:
+        proj = [f"## This project: {os.path.basename(os.path.abspath(cwd))} ({len(here)} past tasks)", *from_repo]
         root = os.path.abspath(cwd) + os.sep
         hot = Counter(f[len(root):] if f.startswith(root) else f for t in here for f in t["files"]).most_common(8)
         if hot:
@@ -403,8 +456,9 @@ def profile(tasks, cwd=None):
             proj.append("Tools run here: " + ", ".join(k for k, _ in tools))
         now = time.time()
         recent = sorted(here, key=lambda t: -t["t"])[:5]
-        proj.append("Recent work here:\n" + "\n".join(
-            f"- {(now - t['t']) / 86400:.0f}d ago: {' '.join(t['prompt'].split())[:140]}" for t in recent))
+        if recent:
+            proj.append("Recent work here:\n" + "\n".join(
+                f"- {(now - t['t']) / 86400:.0f}d ago: {' '.join(t['prompt'].split())[:140]}" for t in recent))
         out.append("\n".join(proj))
     if not out:
         return ""
@@ -436,14 +490,16 @@ def facts(tasks, cwd=None):
             if t["t"] >= r["last"]:
                 r["text"], r["last"] = s, t["t"]
     here = os.path.abspath(cwd) if cwd else None
+    gone = forgotten()
     day = lambda ts: datetime.fromtimestamp(ts).date().isoformat()
     out = []
     for key, r in recs.items():
         n, projs = len(r["evidence"]), sorted(r["projects"])
         scope = "user" if len(projs) > 1 else f"project:{projs[0]}"
-        if here and scope not in ("user", f"project:{here}"):
+        fid = "f_" + hashlib.sha1(key.encode()).hexdigest()[:8]
+        if fid in gone or here and scope not in ("user", f"project:{here}"):
             continue
-        out.append({"id": "f_" + hashlib.sha1(key.encode()).hexdigest()[:8], "schema": 1, "kind": r["kind"],
+        out.append({"id": fid, "schema": 1, "kind": r["kind"],
                     "scope": scope, "text": r["text"], "count": n,
                     "confidence": round(min(0.95, 0.5 + 0.15 * (n - 1)), 2),  # ponytail: evidence-count prior
                     "evidence": r["evidence"][-5:], "first_seen": day(r["first"]), "last_seen": day(r["last"]),
@@ -465,6 +521,42 @@ def render_facts(recs, cap=1200):
 def facts_cmd(args=()):
     """`footprint facts [--all]` — structured memory as JSON (this project + user-wide; --all = every project)."""
     print(json.dumps(facts(build(), None if "--all" in args else os.getcwd()), indent=2))
+
+
+def forgotten():
+    try:
+        return set(json.load(open(FORGOTTEN, encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def memory_cmd(args=()):
+    """`footprint memory list [--all]` — what new sessions are told about you; `forget <id>...` removes a wrong one."""
+    sub, rest = (args[0] if args else "list"), list(args[1:])
+    if sub == "forget":
+        known = {f["id"] for f in facts(build())}
+        ids = [i for i in rest if i in known]
+        for i in set(rest) - known:
+            print(f"unknown id {i} (see: footprint memory list --all)")
+        if ids:
+            os.makedirs(os.path.dirname(FORGOTTEN), exist_ok=True)
+            json.dump(sorted(forgotten() | set(ids)), open(FORGOTTEN, "w", encoding="utf-8"))
+            print(f"forgot {len(ids)}: never injected again")
+        return
+    if sub != "list":
+        sys.exit("usage: footprint memory list [--all] | forget <id>...")
+    tasks, cwd = build(), os.getcwd()
+    fs = facts(tasks, None if "--all" in rest else cwd)
+    print("Standing preferences (injected at session start when seen x%d+):" % FACT_MIN)
+    for f in fs:
+        mark = "on " if f["count"] >= FACT_MIN else "off"
+        print(f"  [{mark}] {f['id']}  x{f['count']}  {f['scope'].replace('project:', '')[-30:]:<30}  {f['text'][:90]}")
+    if not fs:
+        print("  (none yet)")
+    print()
+    print(profile(tasks, cwd) or "No profile yet.")
+    if forgotten():
+        print(f"\n{len(forgotten())} forgotten (edit {FORGOTTEN} to undo)")
 
 
 def recall(args=()):
@@ -582,4 +674,20 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     got = [json.loads(x) for x in open(arc)]
     assert len(got) == 1 and "abc123" not in got[0]["message"]["content"] and "deploy" in got[0]["message"]["content"], got
     assert os.path.getmtime(arc) == os.path.getmtime(src)
+    rp = os.path.join(d, "repo")
+    os.makedirs(rp)
+    open(os.path.join(rp, "package.json"), "w").write(json.dumps({"scripts": {"test": "vitest", "dev": "next dev"}}))
+    open(os.path.join(rp, "pnpm-lock.yaml"), "w").write("")
+    open(os.path.join(rp, "tsconfig.json"), "w").write('{ "compilerOptions": { "strict": true } }')
+    for msg in ("feat(ui): add header", "fix: typo", "chore: bump"):
+        subprocess.run(["git", "-C", rp, "init", "-q"]) if not os.path.isdir(os.path.join(rp, ".git")) else None
+        subprocess.run(["git", "-C", rp, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", msg])
+    rf = "\n".join(repo(rp))
+    assert "Package manager: pnpm" in rf and "`pnpm dev`, `pnpm test`" in rf and "TypeScript strict" in rf, rf
+    assert "Commits: conventional (" in rf and "chore: bump" in rf, rf
+    assert "Package manager: pnpm" in profile([], rp)  # repo facts show even with no history
+    FORGOTTEN = os.path.join(d, "forgotten.json")
+    fid = facts(pf)[0]["id"]
+    json.dump([fid], open(FORGOTTEN, "w"))
+    assert fid not in [f["id"] for f in facts(pf)] and len(facts(pf)) == 1
     print("memory self-check ok")
