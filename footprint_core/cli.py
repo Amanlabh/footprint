@@ -3,8 +3,8 @@
 Commands:
   setup                 create .venv + install the platform backend (mlx / torch)
   trace                 arm tracing: sessions from now on become training data (run before chatting)
-  collect [project]     curated training data: accepted turns only, redacted, split by session -> data/{train,valid,test}.jsonl
-  train                 LoRA fine-tune base model on collected data
+  collect [project|--all]  curated training data: accepted turns + your own commits, redacted, split by session (default: this project)
+  train                 LoRA v2 on data/ -> new adapter version (live only if test loss improves)
   eval                  test loss + perplexity of the footprint adapter on held-out data
   adapter [use vN]      list adapter versions (* = live) with losses; use vN = switch / roll back
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)

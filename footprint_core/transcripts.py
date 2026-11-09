@@ -140,8 +140,10 @@ def collect(project=None):
     from .bench import holdout
     from .memory import _redact, _redact_obj
     since = float(open(config.TRACE_MARK, encoding="utf-8").read()) if os.path.exists(config.TRACE_MARK) else 0.0
-    pdir = project_dir(project or os.getcwd())
-    dirs = [pdir] if os.path.isdir(pdir) else glob.glob(os.path.join(config.PROJECTS, "*"))
+    every = project == "--all"  # a model of you, not of one repo: all projects
+    pdir = project_dir(os.getcwd() if every or not project else project)
+    one = os.path.isdir(pdir) and not every
+    dirs = [pdir] if one else glob.glob(os.path.join(config.PROJECTS, "*"))
     held = holdout()
     sessions, seen, dupes, dropped = [], set(), 0, 0
     from .memory import ARCHIVE
@@ -188,7 +190,7 @@ def collect(project=None):
     # your own commits (no AI edit to those files in the 2 days before): best style signal there is
     from .memory import build, own_commits
     tasks = build()
-    scope = [project or os.getcwd()] if os.path.isdir(pdir) else sorted({t["cwd"] for t in tasks if t["cwd"]})
+    scope = [project or os.getcwd()] if one else sorted({t["cwd"] for t in tasks if t["cwd"]})
     roots = {}
     for c in scope:
         if os.path.isdir(c):
