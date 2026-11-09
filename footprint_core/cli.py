@@ -6,6 +6,7 @@ Commands:
   collect [project]     curated training data: accepted turns only, redacted, split by session -> data/{train,valid,test}.jsonl
   train                 LoRA fine-tune base model on collected data
   eval                  test loss + perplexity of the footprint adapter on held-out data
+  adapter [use vN]      list adapter versions (* = live) with losses; use vN = switch / roll back
   serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
   install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
@@ -24,7 +25,7 @@ Commands:
 """
 import os, sys
 
-from . import bench, config, context, memory, service, switch, transcripts, vault
+from . import adapters, bench, config, context, memory, service, switch, transcripts, vault
 from .backends import get
 
 
@@ -37,6 +38,7 @@ def main(argv=None):
      "trace": service.trace,
      "train": lambda: get().train(),
      "eval": lambda: get().evaluate(),
+     "adapter": lambda: adapters.main(argv[1:]),
      "serve": lambda: get().serve(),
      "install": service.install,
      "context": lambda: context.show(argv[1:]),

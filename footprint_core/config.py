@@ -1,8 +1,8 @@
-import math, os, sys
+import json, math, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data")
-ADAPTERS = os.path.join(ROOT, "adapters")
+ADAPTER_ROOT = os.path.join(ROOT, "adapters")
 PROJECTS = os.path.expanduser("~/.claude/projects")
 TRACE_MARK = os.path.expanduser("~/.claude/footprint-trace")
 OPENCODE = os.path.expanduser("~/.config/opencode")
@@ -21,8 +21,23 @@ MODEL = os.environ.get("FOOTPRINT_MODEL",
                        "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit" if IS_MAC
                        else "Qwen/Qwen2.5-Coder-1.5B-Instruct")
 PORT = os.environ.get("FOOTPRINT_PORT", "8399")
+# versioned adapters: adapters/<model>/vN/ + an `active` file naming the live one (switch = rollback)
+MODEL_ADAPTERS = os.path.join(ADAPTER_ROOT, re.sub(r"[^\w.-]+", "--", MODEL))
+
+
+def active_version():
+    try:
+        return open(os.path.join(MODEL_ADAPTERS, "active"), encoding="utf-8").read().strip() or None
+    except OSError:
+        return None
+
+
+ADAPTERS = os.path.join(MODEL_ADAPTERS, active_version() or "none")  # what serve/eval use
+LORA_RANK = int(os.environ.get("FOOTPRINT_LORA_RANK", "16"))
+LORA_ALPHA = 2 * LORA_RANK
+LEARNING_RATE = os.environ.get("FOOTPRINT_LR", "1e-4")
 ITERS = os.environ.get("FOOTPRINT_ITERS")        # unset -> auto, epoch-based (resolve_iters)
-EPOCHS = float(os.environ.get("FOOTPRINT_EPOCHS", "3"))
+EPOCHS = float(os.environ.get("FOOTPRINT_EPOCHS", "2"))  # 1-2 passes; best checkpoint by val loss = early stop
 BATCH = int(os.environ.get("FOOTPRINT_BATCH", "1"))
 ITERS_CAP = int(os.environ.get("FOOTPRINT_ITERS_CAP", "2000"))  # ceiling so big datasets stay tractable
 TEST_BATCHES = int(os.environ.get("FOOTPRINT_TEST_BATCHES", "25"))  # eval subsample; -1 = whole test split
@@ -35,13 +50,23 @@ PROFILE_CAP = int(os.environ.get("FOOTPRINT_PROFILE_CAP", "1500"))  # chars of p
 EMBED_MODEL = os.environ.get("FOOTPRINT_EMBED_MODEL", "nomic-embed-text")  # Ollama; absent = BM25-only recall
 OLLAMA_URL = os.environ.get("FOOTPRINT_OLLAMA_URL", "http://localhost:11434")
 
-SYSTEM = ("You are footprint, a local coding agent trained on Claude Code sessions. "
-          "To act, emit tool calls as <tool name=\"NAME\">{json args}</tool>. "
-          "Say DONE when the task is complete.")
+SYSTEM = ("You are footprint, a local coding agent. Use the provided tools to read, search, edit and run code "
+          "in the user's project, then reply briefly with what you did.")
+# OpenCode's own tool names + argument names: what the model is called with at runtime, so it trains on them
+_t = lambda name, desc, props, req: {"type": "function", "function": {
+    "name": name, "description": desc, "parameters": {"type": "object", "properties": props, "required": req}}}
+_s = {"type": "string"}
+TOOLS = [_t("bash", "Run a shell command", {"command": _s, "description": _s, "timeout": {"type": "number"}}, ["command"]),
+         _t("read", "Read a file", {"filePath": _s, "offset": {"type": "number"}, "limit": {"type": "number"}}, ["filePath"]),
+         _t("edit", "Replace text in a file", {"filePath": _s, "oldString": _s, "newString": _s,
+                                               "replaceAll": {"type": "boolean"}}, ["filePath", "oldString", "newString"]),
+         _t("write", "Write a whole file", {"filePath": _s, "content": _s}, ["filePath", "content"]),
+         _t("grep", "Search file contents", {"pattern": _s, "path": _s, "include": _s}, ["pattern"]),
+         _t("glob", "Find files by pattern", {"pattern": _s, "path": _s}, ["pattern"])]
 
 
 def has_adapter():
-    return any(os.path.exists(os.path.join(ADAPTERS, f))
+    return active_version() is not None and any(os.path.exists(os.path.join(ADAPTERS, f))
                for f in ("adapters.safetensors", "adapter_model.safetensors"))
 
 

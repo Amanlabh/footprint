@@ -172,7 +172,7 @@ def sync_cmd(argv):
     _ensure_vault(token, login_name)
     _clone(token, login_name)
     # training data is your code + conversations: it stays on this machine unless you opt in
-    pairs = [(config.ADAPTERS, os.path.join(CLONE, "adapters"))]
+    pairs = [(config.ADAPTER_ROOT, os.path.join(CLONE, "adapters"))]  # every version, so rollback works on any device
     if "--with-data" in argv:
         pairs.append((config.DATA, os.path.join(CLONE, "data")))
     if direction == "push":

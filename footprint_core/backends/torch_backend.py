@@ -1,7 +1,7 @@
 """Linux/Windows backend: transformers + peft (CUDA if available, else CPU)."""
 import json, os
 
-from .. import config
+from .. import adapters, config
 
 
 def train():
@@ -10,34 +10,43 @@ def train():
     from trl import SFTConfig, SFTTrainer
     ds = load_dataset("json", data_files={"train": os.path.join(config.DATA, "train.jsonl"),
                                           "valid": os.path.join(config.DATA, "valid.jsonl")})
+    v, out = adapters.new_version()
+    iters = int(config.resolve_iters())
+    every = max(25, iters // 10)
     trainer = SFTTrainer(
         model=config.MODEL,
-        args=SFTConfig(output_dir=config.ADAPTERS, max_steps=int(config.resolve_iters()),
-                       per_device_train_batch_size=config.BATCH, gradient_checkpointing=True,
-                       max_length=4096, logging_steps=25, report_to=[]),
+        args=SFTConfig(output_dir=out, max_steps=iters, per_device_train_batch_size=config.BATCH,
+                       gradient_checkpointing=True, max_length=4096, logging_steps=25, report_to=[],
+                       learning_rate=float(config.LEARNING_RATE), assistant_only_loss=True,  # = mlx --mask-prompt
+                       eval_strategy="steps", eval_steps=every, save_strategy="steps", save_steps=every,
+                       load_best_model_at_end=True, metric_for_best_model="eval_loss", save_total_limit=2),
         train_dataset=ds["train"], eval_dataset=ds["valid"],
-        peft_config=LoraConfig(r=8, lora_alpha=16, target_modules="all-linear"))
+        peft_config=LoraConfig(r=config.LORA_RANK, lora_alpha=config.LORA_ALPHA, lora_dropout=0.05,
+                               target_modules="all-linear"))
     trainer.train()
-    trainer.save_model(config.ADAPTERS)
-    print(f"adapter saved -> {config.ADAPTERS}")
+    trainer.save_model(out)  # best checkpoint (load_best_model_at_end) = early stop
+    adapters.finish(v, {"format": "native-v2", "iters": iters, "test_loss": evaluate(out),
+                        "val_loss": trainer.state.best_metric, "rank": config.LORA_RANK})
 
 
-def evaluate():
+def evaluate(path=None):
     import math
     from datasets import load_dataset
     from peft import PeftModel
     from transformers import AutoModelForCausalLM
     from trl import SFTConfig, SFTTrainer
-    if not config.has_adapter():
+    if not path and not config.has_adapter():
         raise SystemExit("no trained adapter. run: footprint train")
     ds = load_dataset("json", data_files={"test": config.ensure_test()})
     base = AutoModelForCausalLM.from_pretrained(config.MODEL, torch_dtype="auto", device_map="auto")
-    model = PeftModel.from_pretrained(base, config.ADAPTERS)
+    path = path or config.ADAPTERS
+    model = PeftModel.from_pretrained(base, path)
     trainer = SFTTrainer(model=model, eval_dataset=ds["test"],
-                         args=SFTConfig(output_dir=config.ADAPTERS, max_length=4096,
+                         args=SFTConfig(output_dir=path, max_length=4096, assistant_only_loss=True,
                                         per_device_eval_batch_size=config.BATCH, report_to=[]))
     loss = trainer.evaluate()["eval_loss"]
     print(f"Test loss {loss:.3f}, Test ppl {math.exp(loss):.3f}")
+    return round(loss, 3)
 
 
 def serve():

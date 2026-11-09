@@ -46,3 +46,25 @@ def test_rejected_marks_corrected_and_interrupted_tasks():
             u("now add tests"), a("<tool>"),                 # task 3: interrupted -> rejected
             u("<tool_result>x</tool_result>\n[Request interrupted by user]")]
     assert transcripts.rejected(msgs) == [True, True, False, False, False, False, True, True, True]
+
+
+def test_parse_native_maps_claude_tools_to_opencode(tmp_path):
+    rows = [{"type": "user", "message": {"role": "user", "content": "rename the button<system-reminder>x</system-reminder>"}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "On it."}]}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "e1", "name": "Edit",
+                 "input": {"file_path": "/a.tsx", "old_string": "Go", "new_string": "Start"}}]}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "t1", "name": "TodoWrite", "input": {"todos": []}}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "e1", "content": "edited"},
+                {"type": "tool_result", "tool_use_id": "t1", "content": "todos saved"}]}},
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Renamed."}]}}]
+    p = tmp_path / "s.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    msgs = transcripts.parse_native(str(p))
+    assert msgs[0] == {"role": "user", "content": "rename the button"}
+    assert msgs[1]["content"] == "On it." and msgs[1]["tool_calls"] == [{"id": "e1", "type": "function", "function": {
+        "name": "edit", "arguments": {"filePath": "/a.tsx", "oldString": "Go", "newString": "Start"}}}]
+    assert msgs[2] == {"role": "tool", "tool_call_id": "e1", "content": "edited"}  # TodoWrite call + result dropped
+    assert msgs[3] == {"role": "assistant", "content": "Renamed."} and len(msgs) == 4
