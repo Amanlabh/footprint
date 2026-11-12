@@ -193,6 +193,7 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_EPOCHS` | `2` | passes over the data when `FOOTPRINT_ITERS` is unset |
 | `FOOTPRINT_LORA_LAYERS` | `half` | LoRA on the last half of the layers (`all`, or a number) |
 | `FOOTPRINT_GRAD_CKPT` | `auto` | `on` / `off`; auto estimates training memory vs RAM, and an out-of-memory crash retries with it on |
+| `FOOTPRINT_MAX_SEQ` | from RAM | max tokens per lesson; unset = what this machine can train without swapping (8 GB → 1792, 16 GB → 4096). Longer lessons lose their oldest context, never the answer |
 | `FOOTPRINT_MIN_EVAL` | `10` | validation/test examples `collect` aims for; below it, `train` skips early stop |
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
@@ -201,7 +202,7 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_CONTEXT_CAP` | `4000` | max chars of previous-session state injected (~1k tokens) |
 | `FOOTPRINT_CONTEXT_MAX_AGE_H` | `168` | previous session older than this = stale, nothing injected |
 
-`footprint train` fits the max sequence length to your longest lesson, shows `step 40/126 · 32% · ~15 min left`,
+`footprint train` fits to your machine (on 8 GB RAM, long lessons are shortened from the oldest context) and to your longest lesson, shows `step 40/126 · 32% · ~15 min left`,
 and resumes from its last checkpoint if it was stopped (Ctrl-C, sleep, crash) — just run it again.
 
 ## Troubleshooting

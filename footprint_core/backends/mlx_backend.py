@@ -13,19 +13,43 @@ def _env():
     return {**os.environ, "PYTHONUNBUFFERED": "1", **({"HF_HUB_OFFLINE": "1"} if cached else {})}
 
 
-def _lengths():
-    """Token count of every lesson (train/valid/test) with the model's own chat template."""
+def _plan():
+    """Fit the lessons to this machine. Measures every lesson (train/valid/test) with the model's own chat
+    template; lessons longer than what the RAM can train on (config.seq_cap) lose their oldest context —
+    mlx_lm itself would cut the END of a long lesson, i.e. the answer we train on.
+    -> {seq, data (dir to train from), longest, cap, trimmed, dropped}"""
     os.environ.update({k: v for k, v in _env().items() if k == "HF_HUB_OFFLINE"})
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # no "PyTorch not found" noise: only the tokenizer is used
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(config.MODEL)
-    out = []
+    cap, sets, lengths, trimmed, dropped = config.seq_cap(), {}, [], 0, 0
     for name in ("train", "valid", "test"):
         p = os.path.join(config.DATA, f"{name}.jsonl")
+        rows = []
         for line in open(p, encoding="utf-8") if os.path.exists(p) else ():
             e = json.loads(line)
-            out.append(len(tok.apply_chat_template(e["messages"], tools=e.get("tools"), tokenize=True)))
-    return out
+            count = lambda ms: config.ntok(tok.apply_chat_template(ms, tools=e.get("tools"), tokenize=True))
+            n = count(e["messages"])
+            lengths.append(n)
+            if n > cap:
+                ms = config.trim(e["messages"], count, cap)
+                if ms is None:
+                    dropped += 1
+                    continue
+                trimmed += 1
+                e, n = {**e, "messages": ms}, count(ms)
+            rows.append((n, e))
+        sets[name] = rows
+    data = config.DATA
+    if trimmed or dropped:  # a fitted copy; the collected data stays as it is
+        data = os.path.join(config.DATA, f"fit{cap}")
+        os.makedirs(data, exist_ok=True)
+        for name, rows in sets.items():
+            with open(os.path.join(data, f"{name}.jsonl"), "w", encoding="utf-8") as fh:
+                fh.writelines(json.dumps(e) + "\n" for _, e in rows)
+    kept = [n for rows in sets.values() for n, _ in rows]
+    return {"seq": config.fit_seq(kept), "data": data, "longest": max(lengths, default=0), "cap": cap,
+            "trimmed": trimmed, "dropped": dropped, "total": len(lengths)}
 
 
 def _count(name):
@@ -43,8 +67,8 @@ def train(force_ckpt=False):
     max length fitted to the data, best checkpoint by validation loss (early stop), new version gated on
     test loss. Prints % + time left; a stopped run resumes from its last checkpoint on the next `train`."""
     print("measuring your lessons (tokens)…", flush=True)
-    lengths = _lengths()
-    seq = config.fit_seq(lengths)
+    plan = _plan()
+    seq = plan["seq"]
     layers = config.lora_layers(config.model_config().get("num_hidden_layers"))
     iters = int(config.resolve_iters())
     every = max(25, iters // 10)
@@ -74,13 +98,17 @@ def train(force_ckpt=False):
         resume = ["--resume-adapter-file", step_f(offset)]
         print(f"resuming {v} from step {offset}/{iters}")
     print(f"training {v}: {iters} steps · LoRA rank {config.LORA_RANK} on last {layers} layers · "
-          f"max length {seq} tokens (longest lesson {max(lengths, default=0)}) · "
+          f"max length {seq} tokens (longest lesson {plan['longest']}) · "
           f"grad checkpoint {'on' if ckpt else 'off'} · eval/save every {every}"
+          + (f"\n  fitted to this machine ({config.ram_gb() or 0:.0f} GB RAM -> up to {plan['cap']} tokens per lesson): "
+             f"{plan['trimmed']} of {plan['total']} lessons lost their oldest context (answer kept whole)"
+             + (f", {plan['dropped']} too long even then and skipped" if plan["dropped"] else "")
+             + ". Override: FOOTPRINT_MAX_SEQ" if plan["trimmed"] or plan["dropped"] else "")
           + ("" if early else f"\n  note: only {_count('valid')} validation lessons (<{config.MIN_EVAL}) — early stop off, "
                                "keeping the final step. Collect more sessions for a real check."), flush=True)
     adapters.save_progress(out, prog)
     p = subprocess.Popen([sys.executable, "-m", "mlx_lm", "lora", "--model", config.MODEL, "--train",
-                          "--data", config.DATA, "--adapter-path", out, "-c", cfg, "--mask-prompt",
+                          "--data", plan["data"], "--adapter-path", out, "-c", cfg, "--mask-prompt",
                           "--num-layers", str(layers), "--learning-rate", config.LEARNING_RATE,
                           "--iters", str(iters - offset), "--steps-per-eval", str(every), "--save-every", str(every),
                           "--steps-per-report", "5", "--val-batches", "25", "--max-seq-length", str(seq),
@@ -114,8 +142,9 @@ def train(force_ckpt=False):
                 t0 = time.time()
             if t0 and (m := re.search(r"Iter (\d+): Train loss ([\d.]+)", line)):
                 it = int(m.group(1))
+                mem = re.search(r"Peak mem ([\d.]+) GB", line)
                 print(f"  step {offset + it}/{iters} · {100 * (offset + it) // iters}% · train loss {m.group(2)} · "
-                      f"~{_eta(it, iters - offset, time.time() - t0)} left", flush=True)
+                      f"~{_eta(it, iters - offset, time.time() - t0)} left" + (f" · mem {mem.group(1)} GB" if mem else ""), flush=True)
             elif re.search(r"Val loss|Starting training|Trainable parameters|Error|Traceback", line):
                 print(line, end="", flush=True)
     except KeyboardInterrupt:  # Ctrl-C, or SIGTERM (laptop job scheduler) via the handler below
@@ -138,7 +167,7 @@ def train(force_ckpt=False):
             + [os.path.join(out, "progress.json")]:
         if os.path.exists(f):
             os.remove(f)  # the pick is already adapters.safetensors (sync would upload them all)
-    test = evaluate(out)
+    test = evaluate(out, plan)
     adapters.finish(v, {"format": "native-v2", "iters": iters, "best_iter": best, "early_stop": early,
                         "val_loss": prog["val"].get(str(best)), "test_loss": test, "layers": layers, "seq": seq,
                         "grad_ckpt": ckpt, "rank": config.LORA_RANK, "lr": config.LEARNING_RATE})
@@ -147,15 +176,18 @@ def train(force_ckpt=False):
 OOM_RE = config.OOM
 
 
-def evaluate(path=None):
-    """Test loss of an adapter on the newest sessions (never trained or validated on). -> float"""
+def evaluate(path=None, plan=None):
+    """Test loss of an adapter on the newest sessions (never trained or validated on). -> float
+    Scored on the same fitted lessons and max length the machine trains with."""
     path = path or config.ADAPTERS
     if not os.path.exists(os.path.join(path, "adapters.safetensors")):
         sys.exit("no trained adapter. run: footprint train")
     config.ensure_test()
+    plan = plan or _plan()
+    print("scoring on the held-out test lessons…", flush=True)
     r = subprocess.run([sys.executable, "-m", "mlx_lm", "lora", "--model", config.MODEL,
-                        "--data", config.DATA, "--adapter-path", path, "--mask-prompt",
-                        "--test", "--max-seq-length", "4096", "--test-batches", str(config.TEST_BATCHES),
+                        "--data", plan["data"], "--adapter-path", path, "--mask-prompt",
+                        "--test", "--max-seq-length", str(plan["seq"]), "--test-batches", str(config.TEST_BATCHES),
                         "--batch-size", str(config.BATCH)], capture_output=True, text=True, env=_env())
     print(r.stdout[-400:] + r.stderr[-400:] if r.returncode else r.stdout.strip().splitlines()[-1])
     m = re.search(r"Test loss ([\d.]+)", r.stdout)
