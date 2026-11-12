@@ -48,6 +48,36 @@ def new_version():
     return v, path
 
 
+def start(sig):
+    """Where a training run goes. An unfinished newest version (no metrics.json) with the same data + LoRA
+    settings is resumed -> (v, path, progress). Unfinished with other settings is wiped and reused (its
+    checkpoints can't load under a different LoRA shape). Otherwise a fresh version -> (v, path, None)."""
+    migrate()
+    vs = versions()
+    last = vs[-1] if vs else None
+    if last and not os.path.exists(os.path.join(config.MODEL_ADAPTERS, last, "metrics.json")) \
+            and last != config.active_version():
+        path = os.path.join(config.MODEL_ADAPTERS, last)
+        try:
+            prog = json.load(open(os.path.join(path, "progress.json"), encoding="utf-8"))
+        except (OSError, ValueError):
+            prog = {}
+        if prog.get("sig") == sig and 0 < prog.get("done", 0) < prog.get("iters", 0):
+            return last, path, prog
+        print(f"discarding unfinished {last} (stopped before any checkpoint, or data/settings changed since)")
+        shutil.rmtree(path)
+        os.makedirs(path)
+        return last, path, None
+    v, path = new_version()
+    return v, path, None
+
+
+def save_progress(path, prog):
+    tmp = os.path.join(path, "progress.json.tmp")
+    json.dump(prog, open(tmp, "w", encoding="utf-8"), indent=1)
+    os.replace(tmp, os.path.join(path, "progress.json"))
+
+
 def data_hash():
     h = hashlib.sha256()
     for name in ("train", "valid", "test"):
@@ -112,4 +142,12 @@ if __name__ == "__main__":  # self-check: versions, gate, migrate, rollback in a
     assert config.active_version() == "v3"
     use("v2", quiet=True)  # rollback
     assert config.active_version() == "v2" and metrics("v3")["test_loss"] == 2.5
+    # resume: unfinished v4 with matching sig resumes; changed sig wipes + reuses v4; finished -> v5
+    v4, p4 = new_version()
+    save_progress(p4, {"sig": {"a": 1}, "iters": 100, "done": 50})
+    assert start({"a": 1})[0::2] == ("v4", {"sig": {"a": 1}, "iters": 100, "done": 50})
+    v, p, prog = start({"a": 2})
+    assert (v, prog) == ("v4", None) and os.listdir(p) == []
+    json.dump({}, open(os.path.join(p, "metrics.json"), "w"))
+    assert start({"a": 2})[0] == "v5"
     print("adapters self-check ok")
