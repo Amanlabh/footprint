@@ -36,7 +36,7 @@ Latest from GitHub (ahead of npm): `npm install -g https://github.com/Amanlabh/f
 - **Session memory:** every prompt (Claude Code and OpenCode) also gets the closest
   *past* tasks from all your sessions — what you asked, files touched, commands run,
   how it ended — so any model reuses how you solved it before. No training, no GPU;
-  local index at `~/.footprint/memory.json`. Try it: `footprint recall <text>`
+  local index at `~/.footprint/memory.db` (SQLite, one file). Try it: `footprint recall <text>`
 - **Claude parity benchmark:** `footprint bench harvest` picks tasks Claude finished in your
   repos (ended in a commit, with a passing check); `footprint bench run <provider/model>
   --memory=both` replays them with any model in an isolated copy and runs the same check;
@@ -190,13 +190,19 @@ Or point any OpenAI-compatible tool at the server:
 |---|---|---|
 | `FOOTPRINT_MODEL` | `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (mac) / `Qwen/Qwen2.5-Coder-1.5B-Instruct` | any chat model of the backend |
 | `FOOTPRINT_ITERS` | auto | training iterations (unset = `EPOCHS` passes over the train set, capped at `ITERS_CAP`) |
-| `FOOTPRINT_EPOCHS` | `3` | passes over the data when `FOOTPRINT_ITERS` is unset |
+| `FOOTPRINT_EPOCHS` | `2` | passes over the data when `FOOTPRINT_ITERS` is unset |
+| `FOOTPRINT_LORA_LAYERS` | `half` | LoRA on the last half of the layers (`all`, or a number) |
+| `FOOTPRINT_GRAD_CKPT` | `auto` | `on` / `off`; auto estimates training memory vs RAM, and an out-of-memory crash retries with it on |
+| `FOOTPRINT_MIN_EVAL` | `10` | validation/test examples `collect` aims for; below it, `train` skips early stop |
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
 | `FOOTPRINT_TEST_BATCHES` | `25` | batches scored by `eval` (`-1` = whole test split) |
 | `FOOTPRINT_PORT` | `8399` | server port |
 | `FOOTPRINT_CONTEXT_CAP` | `4000` | max chars of previous-session state injected (~1k tokens) |
 | `FOOTPRINT_CONTEXT_MAX_AGE_H` | `168` | previous session older than this = stale, nothing injected |
+
+`footprint train` fits the max sequence length to your longest lesson, shows `step 40/126 · 32% · ~15 min left`,
+and resumes from its last checkpoint if it was stopped (Ctrl-C, sleep, crash) — just run it again.
 
 ## Troubleshooting
 
