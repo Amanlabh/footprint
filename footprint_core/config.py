@@ -49,6 +49,19 @@ MEMORY_CAP = int(os.environ.get("FOOTPRINT_MEMORY_CAP", "1500"))  # chars of sim
 PROFILE_CAP = int(os.environ.get("FOOTPRINT_PROFILE_CAP", "1500"))  # chars of profile + project memory at session start
 EMBED_MODEL = os.environ.get("FOOTPRINT_EMBED_MODEL", "nomic-embed-text")  # Ollama; absent = BM25-only recall
 OLLAMA_URL = os.environ.get("FOOTPRINT_OLLAMA_URL", "http://localhost:11434")
+# lite plan: one markdown file per project IS the context layer (no per-prompt recall). Set by `context install --lite`
+PLAN_FILE = os.path.expanduser("~/.footprint/plan")
+CONTEXT_MD_CAP = int(os.environ.get("FOOTPRINT_CONTEXT_MD_CAP", "8000"))  # chars of the .md printed (tail kept)
+CONTEXT_MD = os.path.expanduser(os.environ.get("FOOTPRINT_CONTEXT_MD", "~/.footprint/context"))
+
+
+def lite():
+    if os.environ.get("FOOTPRINT_PLAN"):
+        return os.environ["FOOTPRINT_PLAN"] == "lite"
+    try:
+        return open(PLAN_FILE, encoding="utf-8").read().strip() == "lite"
+    except OSError:
+        return False
 
 SYSTEM = ("You are footprint, a local coding agent. Use the provided tools to read, search, edit and run code "
           "in the user's project, then reply briefly with what you did.")

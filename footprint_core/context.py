@@ -7,7 +7,7 @@ newest other session and print a compact state (goal, files touched, open
 todos, last error, where it ended). Claude Code gets it via a SessionStart
 hook, OpenCode via a plugin (plus /continue for existing sessions).
 """
-import glob, json, os, sqlite3, sys, time
+import glob, hashlib, json, os, sqlite3, sys, time
 
 from . import config, transcripts
 
@@ -171,12 +171,34 @@ def render(s, age_h):
     return "\n\n".join(out)[:config.CONTEXT_CAP]
 
 
+AUTO_START, AUTO_END = "<!-- footprint:auto — rewritten every session start, edit above this line -->", "<!-- /footprint:auto -->"
+
+
+def md_path(cwd):
+    cwd = os.path.abspath(cwd)
+    return os.path.join(config.CONTEXT_MD, f"{os.path.basename(cwd) or 'root'}-{hashlib.sha1(cwd.encode()).hexdigest()[:6]}.md")
+
+
+def write_md(path, cwd, auto):
+    """Lite plan: the project's .md file is the context layer. Everything outside the auto block
+    (Notes the user or the agent wrote) is kept; the auto block is regenerated from the sessions."""
+    old = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+    keep = old.split(AUTO_START)[0].rstrip() if old else (
+        f"# footprint context — {os.path.basename(os.path.abspath(cwd))}\n\n"
+        "## Notes\n<!-- decisions, conventions, gotchas, what's next. You and the agent add here; footprint never deletes it. -->")
+    body = f"{keep}\n\n{AUTO_START}\n{auto.strip()}\n{AUTO_END}\n"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(body)
+    return body
+
+
 def show(args=()):
     """`footprint context` — print previous-session state. As a hook (Claude
     SessionStart or the OpenCode plugin), reads {cwd, session_id, transcript_path?}
     JSON from stdin; by hand, uses the current directory."""
     if args and args[0] == "install":
-        return install()
+        return install("--lite" in args)
     hook = {}
     if not sys.stdin.isatty():
         try:
@@ -193,6 +215,11 @@ def show(args=()):
         # standing preferences first (apply to any task), then habits + project memory. All before the
         # handover: /continue strips everything up to HANDOFF_END, so none of it is indexed as a prompt
         mem = "\n\n".join(b for b in (memory.render_facts(memory.facts(tasks, cwd)), memory.profile(tasks, cwd)) if b)
+    if config.lite():  # ponytail: md refreshed at session start only; agent appends Notes mid-session
+        path = md_path(cwd)
+        body = write_md(path, cwd, "\n\n".join(b for b in (mem, render(*found) if found else "") if b))
+        return print(f"# Project context file: {path}\nWhen you learn something durable here (decision, convention, "
+                     f"gotcha, next step), append one line under ## Notes in that file.\n\n{body[-config.CONTEXT_MD_CAP:]}")
     if mem:
         print(mem + ("\n" if found else ""))
     if found:
@@ -201,8 +228,12 @@ def show(args=()):
         print(f"no previous session within {config.CONTEXT_MAX_AGE_H}h for {cwd}")
 
 
-def install():
-    """Claude Code SessionStart + UserPromptSubmit hooks, OpenCode plugin (auto), /continue command (manual)."""
+def install(lite=False):
+    """Claude Code SessionStart + UserPromptSubmit hooks, OpenCode plugin (auto), /continue command (manual).
+    lite: the per-project .md file is the whole context layer (recall hook stays installed but is a no-op)."""
+    os.makedirs(os.path.dirname(config.PLAN_FILE), exist_ok=True)
+    with open(config.PLAN_FILE, "w", encoding="utf-8") as f:
+        f.write("lite" if lite else "full")
     path = os.path.expanduser("~/.claude/settings.json")
     try:
         cfg = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
@@ -232,6 +263,10 @@ def install():
     from . import memory
     tasks = memory.build()  # first index now, so the first prompt isn't slow
     n, emb = len(tasks), len(memory.embed_index(tasks, limit=len(tasks)))
+    if lite:
+        return print(f"lite plan on — each session starts from {md_path(os.getcwd())} (one .md per project in {config.CONTEXT_MD}).\n"
+                     "  footprint refreshes its auto block every session start; the agent and you add Notes above it.\n"
+                     f"  hooks: {path} · opencode plugin: {plugin} · full plan: footprint context install")
     print(f"continuity on — new sessions start where the last one (Claude Code or OpenCode) left off.\n"
           f"memory on — each prompt gets similar past work from {n} indexed tasks.\n"
           + (f"semantic recall on ({config.EMBED_MODEL}).\n" if emb else
@@ -292,4 +327,12 @@ if __name__ == "__main__":  # self-check on a synthetic Claude transcript + Open
     assert s["src"] == "OpenCode" and s["prompts"] == ["add github oauth"], s
     assert s["files"] == ["/auth.ts"] and s["error"] == "npm ERR" and s["last"] == "oauth wired, callback next"
     assert s["todos"] == [{"content": "callback route", "status": "pending"}]
+    # lite: Notes survive a rewrite, auto block replaced
+    mp = os.path.join(d, "ctx.md")
+    write_md(mp, d, "old auto")
+    open(mp, "a").write("")  # file exists
+    txt = open(mp).read().replace("## Notes\n", "## Notes\n- use pnpm\n")
+    open(mp, "w").write(txt)
+    out = write_md(mp, d, "new auto")
+    assert "- use pnpm" in out and "new auto" in out and "old auto" not in out and out.count(AUTO_START) == 1, out
     print("context state ok")

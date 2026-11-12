@@ -750,7 +750,7 @@ def recall(args=()):
         except json.JSONDecodeError:
             return
     prompt, sid = hook.get("prompt") or "", hook.get("session_id")
-    if (os.environ.get("FOOTPRINT_MEMORY") == "off" or not prompt.strip() or context.HANDOFF_END in prompt
+    if (os.environ.get("FOOTPRINT_MEMORY") == "off" or config.lite() or not prompt.strip() or context.HANDOFF_END in prompt
             or prompt.lstrip().startswith(context.NOISE)):  # harness messages (task notifications) aren't asks
         return
     shown_f = os.path.join(SHOWN, re.sub(r"[^\w-]", "_", sid)) if sid else None
