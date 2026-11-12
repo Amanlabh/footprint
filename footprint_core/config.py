@@ -1,4 +1,4 @@
-import json, math, os, re, sys
+import glob, json, math, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, "data")
@@ -41,6 +41,14 @@ EPOCHS = float(os.environ.get("FOOTPRINT_EPOCHS", "2"))  # 1-2 passes; best chec
 BATCH = int(os.environ.get("FOOTPRINT_BATCH", "1"))
 ITERS_CAP = int(os.environ.get("FOOTPRINT_ITERS_CAP", "2000"))  # ceiling so big datasets stay tractable
 TEST_BATCHES = int(os.environ.get("FOOTPRINT_TEST_BATCHES", "25"))  # eval subsample; -1 = whole test split
+# LoRA on the last N layers: late layers carry style/decisions, half the layers ~ half the backward pass.
+# "half" (default) | "all" | a number
+LORA_LAYERS = os.environ.get("FOOTPRINT_LORA_LAYERS", "half")
+# grad checkpointing: same weights, less memory, ~20-30% slower. auto = off unless the model is big for this
+# machine's RAM; an out-of-memory crash retries with it on (resuming from the last checkpoint)
+GRAD_CKPT = os.environ.get("FOOTPRINT_GRAD_CKPT", "auto")
+MIN_EVAL = int(os.environ.get("FOOTPRINT_MIN_EVAL", "10"))  # valid/test smaller than this = loss is noise, no early stop
+SEQ_MIN, SEQ_MAX = 512, 4096  # max seq length is fitted to the longest lesson in YOUR data, within these bounds
 CTX_BUDGET = 6000      # chars of history per training example
 RESULT_CAP = 1500      # chars kept per tool result
 CONTEXT_CAP = int(os.environ.get("FOOTPRINT_CONTEXT_CAP", "4000"))  # chars injected at session start (~1k tokens)
@@ -102,7 +110,74 @@ def resolve_iters():
     return str(max(100, min(ITERS_CAP, math.ceil(EPOCHS * n / max(BATCH, 1)))))
 
 
+def model_config():
+    """config.json of the base model from the Hugging Face cache ({} if not downloaded yet)."""
+    hub = os.path.join(os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
+    for p in glob.glob(os.path.join(hub, "models--" + MODEL.replace("/", "--"), "snapshots", "*", "config.json")):
+        try:
+            return json.load(open(p, encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    return {}
+
+
+def lora_layers(total):
+    """How many (last) layers get LoRA. total = the model's layer count (None if unknown -> all)."""
+    if LORA_LAYERS == "all" or not total:
+        return total or -1
+    if LORA_LAYERS == "half":
+        return max(1, total // 2)
+    return max(1, min(total, int(LORA_LAYERS)))
+
+
+def fit_seq(lengths):
+    """Max sequence length = longest lesson (tokens) rounded up to 256, within [SEQ_MIN, SEQ_MAX].
+    Fitted per person: nothing is cut, and no step pays for room nobody uses."""
+    top = max(lengths, default=SEQ_MAX)
+    return max(SEQ_MIN, min(SEQ_MAX, -(-top // 256) * 256))
+
+
+def ram_gb():
+    try:
+        if IS_MAC:
+            import subprocess
+            return int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 1e9
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def train_mem_gb(seq, layers, cfg=None):
+    """Rough peak training memory WITHOUT grad checkpointing (GB): weights + output logits (seq x vocab,
+    fp32, ~3 copies for softmax + grads) + activations kept for the backward pass of the LoRA layers.
+    Calibrated on Qwen2.5-1.5B-4bit, seq 2816, 14 layers: ~9.7 GB estimated, OOM on a 16 GB M2 (2026-11-12)."""
+    cfg = cfg if cfg is not None else model_config()
+    m = re.search(r"(\d+(?:\.\d+)?)[bB]\b", MODEL)
+    weights = float(m.group(1)) * (0.6 if re.search(r"4-?bit|q4", MODEL, re.I) else 2.0) if m else 2.0
+    logits = seq * cfg.get("vocab_size", 152000) * 4 * 3 / 1e9
+    acts = max(layers, 1) * seq * cfg.get("hidden_size", 2048) * 60 / 1e9
+    return weights + logits + acts
+
+
+def grad_ckpt(seq=SEQ_MAX, layers=None):
+    """auto: on when the no-checkpoint estimate is over half of RAM (GPU gets ~2/3 of unified memory on Macs,
+    minus the OS and apps). An OOM crash still flips it on and resumes, if the estimate is ever wrong."""
+    if GRAD_CKPT in ("on", "off"):
+        return GRAD_CKPT == "on"
+    ram, cfg = ram_gb(), model_config()
+    if not ram:
+        return True
+    return train_mem_gb(seq, layers or cfg.get("num_hidden_layers", 28), cfg) > 0.5 * ram
+
+
+OOM = re.compile(r"out of memory|insufficient memory|unable to allocate|outofmemory", re.I)
+
+
 if __name__ == "__main__":  # sanity: ITERS override + clamp/epoch math
+    assert fit_seq([1387, 2765]) == 2816 and fit_seq([100]) == 512 and fit_seq([9000]) == 4096 and fit_seq([]) == 4096
+    assert lora_layers(28) == 14 and lora_layers(None) == -1
+    globals()["LORA_LAYERS"] = "all"; assert lora_layers(28) == 28
+    globals()["LORA_LAYERS"] = "8"; assert lora_layers(28) == 8
     globals()["ITERS"] = "42"; assert resolve_iters() == "42"
     _f = lambda n: max(100, min(2000, math.ceil(3.0 * n / 1)))
     assert _f(5713) == 2000   # big set hits cap
