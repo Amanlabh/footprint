@@ -68,3 +68,24 @@ def test_parse_native_maps_claude_tools_to_opencode(tmp_path):
         "name": "edit", "arguments": {"filePath": "/a.tsx", "oldString": "Go", "newString": "Start"}}}]
     assert msgs[2] == {"role": "tool", "tool_call_id": "e1", "content": "edited"}  # TodoWrite call + result dropped
     assert msgs[3] == {"role": "assistant", "content": "Renamed."} and len(msgs) == 4
+
+
+def _sizes(sizes):
+    out = transcripts.split([(i, [{}] * n) for i, n in enumerate(sizes)])
+    return {k: sum(len(e) for _, e in v) for k, v in out.items()}
+
+
+def test_split_grows_eval_sets_to_minimum():
+    """One big old session + small new ones: valid/test reach MIN_EVAL (was 1 valid example before)."""
+    got = _sizes([40, 5, 5, 5, 5, 5, 5, 5, 4])
+    assert got == {"train": 55, "valid": 10, "test": 14}
+
+
+def test_split_keeps_train_majority_and_one_session_each():
+    assert _sizes([1] * 100) == {"train": 80, "valid": 10, "test": 10}
+    assert _sizes([5, 5, 5]) == {"train": 5, "valid": 5, "test": 5}  # tiny data: one session per split
+
+
+def test_split_newest_sessions_are_test():
+    out = transcripts.split([(t, [{"t": t}]) for t in (3, 1, 2)])
+    assert [s[0] for s in out["test"]] == [3] and [s[0] for s in out["valid"]] == [2]

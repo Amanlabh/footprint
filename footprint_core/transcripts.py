@@ -134,6 +134,25 @@ def rejected(msgs):
     return out
 
 
+def split(sessions, keep_train=0.6):
+    """Whole sessions, by time: newest -> test, next -> valid, rest -> train. Each eval split grows (one session
+    at a time) until it holds max(MIN_EVAL, 10%) examples, as long as train keeps >= keep_train of all examples.
+    Always at least one session each. sessions: [(time, [examples])]"""
+    ss = sorted(sessions, key=lambda s: s[0])
+    total = sum(len(e) for _, e in ss)
+    want, floor = max(config.MIN_EVAL, -(-total // 10)), keep_train * total
+    left, out = sum(len(e) for _, e in ss), {}
+    for name in ("test", "valid"):
+        got = []
+        while len(ss) > 1 + (name == "test") and (not got or (sum(len(e) for _, e in got) < want
+                                                                and left - len(ss[-1][1]) >= floor)):
+            got.insert(0, ss.pop())
+            left -= len(got[0][1])
+        out[name] = got
+    out["train"] = ss
+    return {"train": out["train"], "valid": out["valid"], "test": out["test"]}
+
+
 def collect(project=None):
     """Curated LoRA data: only turns the user accepted, secrets redacted, split by session
     in time order (oldest -> train, newer -> valid, newest -> test) so no session leaks across."""
@@ -215,9 +234,7 @@ def collect(project=None):
     if len(sessions) < 3:
         hint = " (trace marker active — only sessions after `trace` count; delete ~/.claude/footprint-trace for all history)" if since else ""
         sys.exit(f"need at least 3 sessions with accepted work under {config.PROJECTS}, found {len(sessions)}{hint}")
-    sessions.sort(key=lambda s: s[0])
-    k = max(1, len(sessions) // 10)
-    splits = {"train": sessions[:-2 * k], "valid": sessions[-2 * k:-k], "test": sessions[-k:]}
+    splits = split(sessions)
     os.makedirs(config.DATA, exist_ok=True)
     counts = {}
     for name, chunk in splits.items():
@@ -226,6 +243,9 @@ def collect(project=None):
         counts[name] = len(exs)
         with open(os.path.join(config.DATA, f"{name}.jsonl"), "w", encoding="utf-8") as fh:
             fh.writelines(json.dumps(e) + "\n" for e in exs)
+    if counts["valid"] < config.MIN_EVAL:
+        print(f"  note: only {counts['valid']} validation examples (<{config.MIN_EVAL}) — train will skip early stop. "
+              "More sessions fix this.")
     print(f"collected {sum(counts.values())} accepted examples from {len(sessions)} sessions "
           f"({counts['train']} train / {counts['valid']} valid / {counts['test']} test, split by session, newest = test)\n"
           f"  includes {mine} of your own commits as diffs · dropped {dropped} turns the user corrected or interrupted"

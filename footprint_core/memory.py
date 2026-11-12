@@ -2,21 +2,22 @@
 
 No training. Every past task (one real user prompt + what followed: files
 edited, commands run, how it ended) from Claude Code and OpenCode goes into a
-local index (~/.footprint/memory.json, rebuilt incrementally). On each new
+local SQLite index (~/.footprint/memory.db: one row per session, only changed
+sessions rewritten; embeddings as float32 blobs). On each new
 prompt, `footprint recall` finds the closest past tasks (BM25, stdlib) and
 prints a short brief that the Claude Code UserPromptSubmit hook / OpenCode
 plugin adds to the conversation.
 
   footprint recall "add a year limit to the date picker"   # try it by hand
 """
-import glob, hashlib, json, math, os, re, sqlite3, subprocess, sys, time, urllib.request
+import array, glob, hashlib, json, math, os, re, sqlite3, subprocess, sys, time, urllib.request
 from collections import Counter
 from datetime import datetime
 
 from . import bench, config, context, transcripts
 
-INDEX = os.path.expanduser("~/.footprint/memory.json")
-EMBEDS = os.path.expanduser("~/.footprint/embed.json")
+DB = os.path.expanduser("~/.footprint/memory.db")
+LEGACY = (os.path.expanduser("~/.footprint/memory.json"), os.path.expanduser("~/.footprint/embed.json"))  # pre-SQLite caches
 FORGOTTEN = os.path.expanduser("~/.footprint/forgotten.json")  # fact ids the user removed (footprint memory forget)
 ARCHIVE = os.path.expanduser("~/.footprint/archive")  # redacted copies: outlive Claude Code's transcript cleanup
 ARCHIVE_IDLE = 1800   # seconds a transcript must sit unchanged before it's copied (don't rewrite the live one per prompt)
@@ -218,48 +219,78 @@ def archive(files):
         os.utime(dst, (m, m))  # same mtime as the source = up to date
 
 
+def _db():
+    """The memory store: one SQLite file. WAL + busy timeout so the Claude hook and the OpenCode plugin can
+    hit it at once. Schema bump (VERSION) = drop the session rows; they rebuild from the transcripts."""
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
+    db = sqlite3.connect(DB, timeout=10)
+    db.execute("pragma journal_mode=wal")
+    db.executescript("create table if not exists meta (k text primary key, v text);"
+                     "create table if not exists sessions (src text, key text, stamp real, tasks text, primary key (src, key));"
+                     "create table if not exists embeds (id text primary key, model text, vec blob);")
+    if (db.execute("select v from meta where k = 'v'").fetchone() or [None])[0] != str(VERSION):
+        with db:
+            db.execute("delete from sessions")
+            db.execute("insert or replace into meta values ('v', ?)", (str(VERSION),))
+    for old in LEGACY:  # one-time: the JSON caches before SQLite. Vectors are kept (Ollama time), the rest rebuilds
+        if os.path.exists(old):
+            try:
+                c = json.load(open(old, encoding="utf-8"))
+                if old.endswith("embed.json") and c.get("model"):
+                    with db:
+                        db.executemany("insert or replace into embeds values (?, ?, ?)",
+                                       ((k, c["model"], array.array("f", v).tobytes()) for k, v in c["v"].items()))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            os.remove(old)
+    return db
+
+
 def build(skip_sid=None):
-    """Incremental index refresh: re-parse only sessions that changed since last time."""
-    try:
-        idx = json.load(open(INDEX, encoding="utf-8"))
-        if idx.get("v") != VERSION:
-            raise ValueError
-    except (OSError, ValueError):
-        idx = {"v": VERSION, "claude": {}, "opencode": {}}
-    seen, held = set(), bench.holdout()  # bench answer key must never leak into memory
+    """Incremental index refresh: re-parse only sessions that changed since last time; only those rows are written."""
+    db = _db()
+    rows = {(src, key): stamp for src, key, stamp in db.execute("select src, key, stamp from sessions")}
+    put, drop, keep = {}, set(), set()
+    held = bench.holdout()  # bench answer key must never leak into memory
     live = glob.glob(os.path.join(config.PROJECTS, "*", "*.jsonl"))
     archive(live)
     names = {os.path.basename(f) for f in live}  # archived copies stand in only once Claude Code deleted the original
     for f in live + [a for a in glob.glob(os.path.join(ARCHIVE, "*", "*.jsonl")) if os.path.basename(a) not in names]:
-        seen.add(f)
-        m = os.path.getmtime(f)
+        k = ("claude", f)
         if os.path.basename(f) in (f"{skip_sid}.jsonl", *(f"{h}.jsonl" for h in held)):
-            idx["claude"].pop(f, None)
+            drop.add(k)
             continue  # the live session (not "past" work) or a held-out bench session
-        if idx["claude"].get(f, [0])[0] != m:
-            idx["claude"][f] = [m, _link(_slim(claude_tasks(f)))]
-    idx["claude"] = {f: v for f, v in idx["claude"].items() if f in seen}
+        keep.add(k)
+        m = os.path.getmtime(f)
+        if rows.get(k) != m:
+            put[k] = (m, _link(_slim(claude_tasks(f))))
+    oc_ok = False
     if os.path.exists(config.OPENCODE_DB):
         try:
-            db = sqlite3.connect(f"file:{config.OPENCODE_DB}?mode=ro", uri=True)
+            oc = sqlite3.connect(f"file:{config.OPENCODE_DB}?mode=ro", uri=True)
             try:
-                for sid, cwd, upd in db.execute("select id, directory, time_updated from session "
+                for sid, cwd, upd in oc.execute("select id, directory, time_updated from session "
                                                 "where parent_id is null and time_archived is null"):
-                    if os.path.basename(cwd or "").startswith("fp-bench-") or sid in held:
-                        idx["opencode"].pop(sid, None)  # bench replays are tests, not your work
+                    k = ("opencode", sid)
+                    if os.path.basename(cwd or "").startswith("fp-bench-") or sid in held or sid == skip_sid:
+                        drop.add(k)  # bench replays are tests, not your work; the live session isn't past work
                         continue
-                    if sid != skip_sid and idx["opencode"].get(sid, [0])[0] != upd:
-                        idx["opencode"][sid] = [upd, _link(_slim(opencode_tasks(db, sid, cwd)))]
+                    keep.add(k)
+                    if rows.get(k) != upd:
+                        put[k] = (upd, _link(_slim(opencode_tasks(oc, sid, cwd))))
+                oc_ok = True
             finally:
-                db.close()
+                oc.close()
         except (sqlite3.Error, json.JSONDecodeError):
             pass  # OpenCode schema changed: Claude-only memory, never break the hook
-    os.makedirs(os.path.dirname(INDEX), exist_ok=True)
-    tmp = INDEX + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(idx, fh)
-    os.replace(tmp, INDEX)
-    return [t for _, ts in (*idx["claude"].values(), *idx["opencode"].values()) for t in ts]
+    gone = drop | {k for k in rows if k not in keep and (k[0] == "claude" or oc_ok)}
+    with db:
+        db.executemany("insert or replace into sessions values (?, ?, ?, ?)",
+                       ((s, k, m, json.dumps(ts)) for (s, k), (m, ts) in put.items()))
+        db.executemany("delete from sessions where src = ? and key = ?", gone)
+    tasks = [t for (raw,) in db.execute("select tasks from sessions") for t in json.loads(raw)]
+    db.close()
+    return tasks
 
 
 def search(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):
@@ -354,34 +385,33 @@ def _embed(texts):
 
 def _unit(v):
     n = math.sqrt(sum(x * x for x in v)) or 1
-    return [round(x / n, 4) for x in v]
+    return [x / n for x in v]
 
 
 def embed_index(tasks, limit=EMBED_BATCH):
-    """Load the vector cache, embed up to `limit` new tasks, drop vanished ones. -> {task id: unit vector}"""
-    try:
-        cache = json.load(open(EMBEDS, encoding="utf-8"))
-        if cache.get("model") != config.EMBED_MODEL:
-            raise ValueError
-    except (OSError, ValueError):
-        cache = {"model": config.EMBED_MODEL, "v": {}}
+    """Vectors from the store, embed up to `limit` new tasks, drop vanished ones. -> {task id: unit vector}
+    Stored as float32 blobs in memory.db; cosine runs in Python. ponytail: sqlite-vec would do the nearest-
+    neighbour search inside SQLite, but macOS system Python can't load SQLite extensions — revisit past ~50k tasks."""
+    db = _db()
+    with db:
+        db.execute("delete from embeds where model != ?", (config.EMBED_MODEL,))
+    have = {k: array.array("f", b).tolist() for k, b in db.execute("select id, vec from embeds")}
     ids = {t["id"] for t in tasks}
-    todo = [t for t in tasks if t["id"] not in cache["v"]][:limit]
-    changed = len(cache["v"]) != len(cache["v"].keys() & ids)
-    cache["v"] = {k: v for k, v in cache["v"].items() if k in ids}
+    stale = [(k,) for k in have if k not in ids]
+    todo = [t for t in tasks if t["id"] not in have][:limit]
+    new = {}
     for i in range(0, len(todo), EMBED_BATCH):
         part = todo[i:i + EMBED_BATCH]
         vecs = _embed([f"search_document: {t['prompt']} {' '.join(map(os.path.basename, t['files']))}" for t in part])
         if not vecs:
             break
-        cache["v"].update((t["id"], _unit(v)) for t, v in zip(part, vecs))
-        changed = True
-    if changed:
-        os.makedirs(os.path.dirname(EMBEDS), exist_ok=True)
-        with open(EMBEDS + ".tmp", "w", encoding="utf-8") as fh:
-            json.dump(cache, fh)
-        os.replace(EMBEDS + ".tmp", EMBEDS)
-    return cache["v"]
+        new.update((t["id"], _unit(v)) for t, v in zip(part, vecs))
+    with db:
+        db.executemany("delete from embeds where id = ?", stale)
+        db.executemany("insert or replace into embeds values (?, ?, ?)",
+                       ((k, config.EMBED_MODEL, array.array("f", v).tobytes()) for k, v in new.items()))
+    db.close()
+    return {**{k: v for k, v in have.items() if k in ids}, **new}
 
 
 def semantic(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):
@@ -812,12 +842,25 @@ if __name__ == "__main__":  # self-check: redaction, task split, ranking, thresh
     assert profile([], "/p/app") == ""
     vec = {"date picker years": [1, 0], "birthday dropdown range": [.9, .1], "billing": [0, 1]}
     _real, _embed = _embed, lambda xs: [vec.get(x.split(": ", 1)[1].split(" dob")[0].strip(), [0, 1]) for x in xs]
-    EMBEDS = os.path.join(d, "embed.json")
+    DB, LEGACY = os.path.join(d, "memory.db"), (os.path.join(d, "memory.json"), os.path.join(d, "embed.json"))
+    json.dump({"model": config.EMBED_MODEL, "v": {"old:1": [0.6, 0.8]}}, open(LEGACY[1], "w"))
     st = [_task("x", "s", "/p", 0, "date picker years")] + filler
     st[0]["files"] = []
     sem = semantic("birthday dropdown range", st)
     assert sem and sem[0][1] is st[0] and not search("birthday dropdown range", st), sem  # meaning, not words
-    assert len(json.load(open(EMBEDS))["v"]) == len(st)  # cached
+    assert not os.path.exists(LEGACY[1])  # legacy JSON migrated into the db, then removed
+    assert sqlite3.connect(DB).execute("select count(*) from embeds").fetchone()[0] == len(st)  # cached; vanished old:1 dropped
+    # store: only changed sessions rewritten, vanished ones dropped, live session skipped
+    config.PROJECTS, config.OPENCODE_DB, ARCHIVE = os.path.join(d, "projects"), os.path.join(d, "none.db"), os.path.join(d, "arc0")
+    pd = os.path.join(config.PROJECTS, "-p-app")
+    os.makedirs(pd)
+    for sid in ("s1", "s2"):
+        open(os.path.join(pd, f"{sid}.jsonl"), "w").write("\n".join(json.dumps(r) for r in rows))
+    b1 = build()
+    assert len(b1) == 4 and {t["sid"] for t in b1} == {"s1", "s2"}, b1
+    assert {t["sid"] for t in build(skip_sid="s2")} == {"s1"}
+    os.remove(os.path.join(pd, "s1.jsonl"))
+    assert {t["sid"] for t in build()} == {"s2"}
     _embed = lambda xs: None
     assert semantic("birthday dropdown range", st) == []  # Ollama down -> BM25 only
     assert is_correction("no, use pnpm not npm") and is_correction("still broken") and is_correction("[Request interrupted by user]")
