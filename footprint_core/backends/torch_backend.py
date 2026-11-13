@@ -15,7 +15,7 @@ def train(force_ckpt=False):
     ds = load_dataset("json", data_files={"train": os.path.join(config.DATA, "train.jsonl"),
                                           "valid": os.path.join(config.DATA, "valid.jsonl")})
     tok = AutoTokenizer.from_pretrained(config.MODEL)
-    seq = config.fit_seq([len(tok.apply_chat_template(e["messages"], tools=e.get("tools"), tokenize=True))
+    seq = config.fit_seq([config.ntok(tok.apply_chat_template(e["messages"], tools=e.get("tools"), tokenize=True))
                           for split in ds.values() for e in split])
     total = AutoConfig.from_pretrained(config.MODEL).num_hidden_layers
     layers = config.lora_layers(total)
