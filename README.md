@@ -194,6 +194,10 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_LORA_LAYERS` | `half` | LoRA on the last half of the layers (`all`, or a number) |
 | `FOOTPRINT_GRAD_CKPT` | `auto` | `on` / `off`; auto estimates training memory vs RAM, and an out-of-memory crash retries with it on |
 | `FOOTPRINT_MAX_SEQ` | from RAM | max tokens per lesson; unset = what this machine can train without swapping (8 GB → 1792, 16 GB → 4096). Longer lessons lose their oldest context, never the answer |
+| `FOOTPRINT_STEP_BUDGET` | `300` | most lessons `train` picks = most steps it runs. Training time stops growing with your history |
+| `FOOTPRINT_SELECT` | `on` | `off` = train on every lesson (the old behaviour) |
+| `FOOTPRINT_PATIENCE` | `2` | stop when the validation loss hasn't improved for this many checks in a row |
+| `FOOTPRINT_COMPRESS` | off | `llmlingua` = shorten long tool outputs in train lessons with LLMLingua-2 (`pip install llmlingua`). Opt-in: check the test loss |
 | `FOOTPRINT_MIN_EVAL` | `10` | validation/test examples `collect` aims for; below it, `train` skips early stop |
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
@@ -204,6 +208,17 @@ Or point any OpenAI-compatible tool at the server:
 
 `footprint train` fits to your machine (on 8 GB RAM, long lessons are shortened from the oldest context) and to your longest lesson, shows `step 40/126 · 32% · ~15 min left`,
 and resumes from its last checkpoint if it was stopped (Ctrl-C, sleep, crash) — just run it again.
+
+### Which lessons get trained on
+
+With more lessons than `FOOTPRINT_STEP_BUDGET`, `train` picks the ones that teach the most (train split only):
+
+1. **quality** — empty answers and refused file-tool calls are dropped
+2. **near-copies** — same ask + same answer up to numbers, paths, hashes
+3. **surprise** — the untrained model tries every lesson once; what it already gets right has nothing to teach
+4. **spread** — the pick covers every kind of behaviour instead of 200 lookalike shell commands
+
+Then it trains one pass over the pick and stops early once the validation loss stops improving.
 
 ## Troubleshooting
 
