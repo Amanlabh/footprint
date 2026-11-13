@@ -51,13 +51,48 @@ offline and private. Not needed for continuity above.
 
 ## How it works
 
-1. Claude Code already logs every session (prompts, replies, tool calls) to `~/.claude/projects`.
-2. `footprint trace` arms a marker so only sessions from that point on become training data.
-3. `footprint collect` parses those transcripts into chat-format training examples.
-4. `footprint train` LoRA fine-tunes a small model (default: Qwen2.5-Coder-1.5B, 4-bit MLX) on them.
-5. `footprint install` registers a launchd agent — the server runs itself at
-   `http://127.0.0.1:8399/v1`, starts at login, restarts on crash. You never run it by hand.
-6. Any OpenAI-compatible tool points at that URL and behaves like your Claude.
+Your Claude Code and OpenCode session logs feed two tracks:
+
+```
+                     Your chat logs (Claude Code + OpenCode)
+                 ┌──────────────────┴──────────────────┐
+     Memory: what to know                 Personalisation: how to act
+     facts · no training                  habits · LoRA fine-tuning
+                 │                                      │
+     Capture tasks                        1 Collect lessons
+     ask, files, commands, outcome          redact, drop corrected turns
+                 │                        2 Curate (data selection)
+     Store and search                       near-copy · surprise · spread
+     SQLite · keywords + meaning          3 Fit to machine
+                 │                          RAM cap, trim oldest context
+     Inject into chats                    4 Fine-tune (LoRA)
+     hooks add notes, every prompt          last 14 of 28 layers · mlx-lm
+                 │                        5 Test gate
+                 │                          live only if test loss improves
+                 │                        6 Serve
+                 │                          local API for OpenCode, Cursor
+                 │                                      │
+     Any model knows your facts           Qwen works your way
+                 └──────────────────┬──────────────────┘
+         Bench: replay your real tasks, score any model vs Claude
+```
+
+**Memory** (no GPU): every finished task — what you asked, files touched, commands run,
+how it ended — goes into `~/.footprint/memory.db`. Hooks inject the closest past tasks
+into every prompt, so any model reuses how you solved it before.
+
+**Personalisation** (optional, local):
+1. `footprint collect` turns transcripts into lessons; secrets redacted, turns with a refused file-tool call dropped.
+2. `footprint train` curates them: drops near-copies, prefers lessons the untrained model
+   gets most wrong (surprise), keeps them spread across topics.
+3. Context length is capped to fit your RAM; oldest context is trimmed first.
+4. LoRA fine-tunes the last half of the layers (14 of 28 on Qwen2.5-Coder-1.5B, 4-bit MLX).
+5. The new adapter goes live only if its test loss beats the active one.
+6. `footprint install` converts the adapter to GGUF (a few MB) and builds Ollama model `footprint`
+   (`qwen2.5-coder:1.5b` + adapter) at `http://127.0.0.1:11434/v1` for OpenCode, Cursor, or any
+   OpenAI-compatible tool. Ollama starts itself at login; a new live adapter rebuilds the model.
+
+**Bench:** `footprint bench` replays your real finished tasks with any model and scores it against Claude.
 
 ## Requirements
 
@@ -71,6 +106,7 @@ offline and private. Not needed for continuity above.
 - [Claude Code](https://claude.com/claude-code) installed and used at least once
 - Python 3.9+
 - Node.js 18+ (only if installing via npm)
+- [Ollama](https://ollama.com/download) (only for local model mode: it serves the trained model)
 
 footprint picks the backend automatically: [MLX](https://github.com/ml-explore/mlx)
 on Apple Silicon, PyTorch + PEFT everywhere else (uses CUDA when available;
@@ -143,11 +179,11 @@ footprint train       # LoRA fine-tune (~10 min, downloads ~1 GB base model firs
 footprint install
 ```
 
-This registers the server with your OS — launchd (macOS), systemd (Linux) or
-Task Scheduler (Windows) — so it starts at login, restarts if it crashes, and
-you never run it by hand. It also wires up OpenCode:
+This builds the `footprint` model in [Ollama](https://ollama.com/download): your adapter,
+converted to GGUF, on `qwen2.5-coder:1.5b`. Ollama starts at login, so you never run a
+server by hand. A new live adapter (`train`, `adapter use`) rebuilds it. It also wires up OpenCode:
 
-- provider `footprint` at `http://127.0.0.1:8399/v1`
+- provider `footprint` at `http://127.0.0.1:11434/v1`
 - a `/footprint <task>` command inside OpenCode
 
 **5. Claude quota over? Keep going.**
@@ -162,9 +198,9 @@ Or point any OpenAI-compatible tool at the server:
 
 | Tool | Setting |
 |---|---|
-| **Cursor** | Settings → Models → OpenAI base URL `http://127.0.0.1:8399/v1`, any API key, add model `footprint` |
+| **Cursor** | Settings → Models → OpenAI base URL `http://127.0.0.1:11434/v1`, any API key, add model `footprint` |
 | **Codex CLI** | custom provider with that base URL in `~/.codex/config.toml` |
-| **anything else** | base URL `http://127.0.0.1:8399/v1`, API key: none |
+| **anything else** | base URL `http://127.0.0.1:11434/v1`, API key: none |
 
 ## Commands
 
@@ -175,13 +211,13 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint collect [dir]` | parse transcripts of a project (default: current dir; unknown dir = all projects) |
 | `footprint train` | LoRA fine-tune on collected data |
 | `footprint eval` | test loss + perplexity of the trained adapter on held-out data (lower = better) |
-| `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
+| `footprint install` | serve via Ollama (model `footprint`) + OpenCode integration |
 | `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook; OpenCode via plugin (+ `/continue` for open sessions); works both ways |
 | `footprint switch list` | this project's recent Claude Code sessions with ids, age, message count, topic |
 | `footprint switch <id>` | open a specific one (first 8 chars of the id are enough) |
 | `footprint switch` | open this project's latest Claude Code chat in OpenCode — the full conversation (prompts, replies, tool calls), not a summary |
 | `footprint context` | preview what the next session will be handed |
-| `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
+| `footprint serve` | rebuild the Ollama model `footprint` from the live adapter (`install` and `adapter use` do this) |
 | `footprint status` | model, example count, adapter, tracing, server state |
 
 ## Configuration
@@ -202,7 +238,8 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
 | `FOOTPRINT_TEST_BATCHES` | `25` | batches scored by `eval` (`-1` = whole test split) |
-| `FOOTPRINT_PORT` | `8399` | server port |
+| `FOOTPRINT_OLLAMA_BASE` | from `FOOTPRINT_MODEL` (`qwen2.5-coder:1.5b`) | Ollama base model the adapter is applied to |
+| `OLLAMA_HOST` | `127.0.0.1:11434` | where Ollama listens |
 | `FOOTPRINT_CONTEXT_CAP` | `4000` | max chars of previous-session state injected (~1k tokens) |
 | `FOOTPRINT_CONTEXT_MAX_AGE_H` | `168` | previous session older than this = stale, nothing injected |
 
@@ -223,7 +260,7 @@ Then it trains one pass over the pick and stops early once the validation loss s
 ## Troubleshooting
 
 - **`no transcripts found`** — either you haven't used Claude Code in this project, or the trace marker is newer than all sessions. Chat first, or `rm ~/.claude/footprint-trace`.
-- **server not responding** — macOS: `/tmp/footprint-serve.log`, `launchctl kickstart -k gui/$UID/com.footprint.serve`; Linux: `journalctl --user -u footprint`, `systemctl --user restart footprint`; Windows: `schtasks /Run /TN footprint-serve`.
+- **server not responding** — footprint is served by Ollama: start the Ollama app (or `ollama serve`), then `footprint serve` to rebuild the model. `ollama list` should show `footprint`.
 - **backend import fails** (`mlx_lm` / `torch`) — re-run `footprint setup`.
 - **quality is rough** — more data beats more iterations: keep tracing, re-collect, re-train. 1.5B is small; try `FOOTPRINT_MODEL=mlx-community/Qwen2.5-Coder-7B-Instruct-4bit` if you have ≥16 GB RAM.
 

@@ -109,8 +109,8 @@ Run these in order:
 | d | `footprint collect` | Turns your Claude sessions into examples: "conversation so far → what Claude did next". Keeps 10% aside for testing. | A model needs example pairs, not raw transcripts. The 10% is what `eval` tests on. |
 | e | `footprint train` | LoRA fine-tune: a small add-on (~20 MB adapter) on top of the base model (Qwen2.5-Coder 1.5B). Minutes to hours; laptop gets hot. | Teaches your and Claude's working style without changing the base model. |
 | f | `footprint eval` | Scores the trained model on the 10% it never saw (loss + perplexity — lower is better). | Confirms it learned before you rely on it. Measures text prediction, not task success — use `footprint bench` for that. |
-| g | `footprint install` | Background service (launchd / systemd / Task Scheduler) runs the model at `localhost:8399` on login, restarts on crash; adds a "footprint" model + `/footprint` command to OpenCode. | You never start it by hand — in OpenCode pick the footprint model with `/models`. |
-| h | `footprint serve` | Runs the same model server in the foreground. | Debugging only, or if you don't want a background service. Not needed after `install`. |
+| g | `footprint install` | Builds a "footprint" model in Ollama (your adapter on `qwen2.5-coder:1.5b`) at `localhost:11434`; Ollama starts at login. Adds a "footprint" model + `/footprint` command to OpenCode. | You never start it by hand — in OpenCode pick the footprint model with `/models`. |
+| h | `footprint serve` | Rebuilds the Ollama "footprint" model from the live adapter. | Only if you changed adapters by hand. `install` and `adapter use` already do it. |
 | i | `footprint status` | Engine (mlx / torch), base model, number of training examples, adapter yes/no. | Quick check of where you are in these steps. |
 
 ---

@@ -26,11 +26,11 @@ Map the user's `/footprint <arg>` to one Bash call:
 | `/footprint collect` | `.venv/bin/python footprint.py collect <current project dir>` |
 | `/footprint collect all` | `.venv/bin/python footprint.py collect --all-projects-nonexistent-dir` (falls back to all projects) |
 | `/footprint train` | `.venv/bin/python footprint.py train` (long; run in background) |
-| `/footprint install` | `.venv/bin/python footprint.py install` (launchd auto-server + OpenCode `/footprint` command — user never runs serve) |
+| `/footprint install` | `.venv/bin/python footprint.py install` (Ollama model `footprint` + OpenCode `/footprint` command — user never runs serve) |
 | `/footprint context` | `python3 footprint.py context` (preview previous-session state for this project) |
 | `/footprint context install` | `python3 footprint.py context install` (SessionStart hook in `~/.claude/settings.json`: new sessions continue from the last one; OpenCode plugin auto-injects + `/continue` command; reads both Claude and OpenCode sessions) |
 | `/footprint switch` | `python3 footprint.py switch` (import latest Claude chat for this project into OpenCode with full history; prints `opencode -s <id>`) |
-| `/footprint serve` | `.venv/bin/python footprint.py serve` (manual fallback only; install makes this unnecessary) |
+| `/footprint serve` | `.venv/bin/python footprint.py serve` (rebuild Ollama model `footprint`; install / adapter use already do it) |
 
 Always run commands from `/Users/aman/Developer/footprint`.
 
@@ -41,9 +41,9 @@ Always run commands from `/Users/aman/Developer/footprint`.
 3. Chat with Claude Code normally — sessions land in `~/.claude/projects` automatically.
 4. `collect` — parses `~/.claude/projects/<project>/*.jsonl` into `data/train.jsonl` + `data/valid.jsonl` (chat format, tool calls encoded as `<tool name="...">{args}</tool>`).
 5. `train` — LoRA on `mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit` (override with `FOOTPRINT_MODEL`, iterations with `FOOTPRINT_ITERS`, default 300). Downloads ~1 GB first time. Run in background, report loss when done.
-6. `install` — the user never runs the server. launchd (`com.footprint.serve`, KeepAlive) keeps the OpenAI-compatible API at `http://127.0.0.1:8399/v1` running across reboots/crashes. Also installs into OpenCode: provider `footprint` + `/footprint <task>` command (`~/.config/opencode/commands/footprint.md`) so typing `/footprint` there makes OpenCode work like Claude.
+6. `install` — the user never runs the server. The active adapter is converted to GGUF and built into Ollama model `footprint` (base `qwen2.5-coder:1.5b`); Ollama serves the OpenAI-compatible API at `http://127.0.0.1:11434/v1` and starts at login. Needs Ollama installed and running. Also installs into OpenCode: provider `footprint` + `/footprint <task>` command (`~/.config/opencode/commands/footprint.md`) so typing `/footprint` there makes OpenCode work like Claude.
    Other tools point at the always-on server:
-   - **Cursor**: Settings → Models → OpenAI base URL `http://127.0.0.1:8399/v1`, any API key, add model `footprint`.
+   - **Cursor**: Settings → Models → OpenAI base URL `http://127.0.0.1:11434/v1`, any API key, add model `footprint`.
    - **Codex CLI**: set a custom provider with that base URL in `~/.codex/config.toml`.
 
 Report command output tersely. If mlx-lm import fails, rerun `setup`.

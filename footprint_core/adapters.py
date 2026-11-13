@@ -1,14 +1,14 @@
 """Versioned LoRA adapters: adapters/<model>/vN/{adapters.safetensors, metrics.json} + `active`.
 
   footprint adapter               list versions (* = active) with their losses
-  footprint adapter use v2        switch the live adapter (= rollback); restart `footprint serve`
+  footprint adapter use v2        switch the live adapter (= rollback); Ollama model is rebuilt
 
 A new version only goes live by itself when its test loss beats the active one; after that,
 `footprint bench run footprint/<model>` is the gate before you keep it.
 """
 import glob, hashlib, json, os, shutil, sys, time
 
-from . import config
+from . import config, ollama
 
 
 def versions():
@@ -95,6 +95,7 @@ def finish(v, m):
     old = metrics(cur).get("test_loss") if cur else None
     if cur is None or (m.get("test_loss") is not None and (old is None or m["test_loss"] < old)):
         use(v, quiet=True)
+        ollama.refresh()
         print(f"{v} is now active (test loss {m.get('test_loss')} vs {old if cur else 'none'}). "
               f"Gate it: footprint bench run <footprint model in opencode> --memory=both; rollback: footprint adapter use {cur}"
               if cur else f"{v} is now active.")
@@ -108,7 +109,8 @@ def use(v, quiet=False):
         sys.exit(f"no {v}. have: {', '.join(versions()) or 'none'}")
     open(os.path.join(config.MODEL_ADAPTERS, "active"), "w", encoding="utf-8").write(v)
     if not quiet:
-        print(f"active adapter: {v} — restart the server to load it (footprint serve, or re-run footprint install)")
+        print(f"active adapter: {v}")
+        ollama.refresh()
 
 
 def main(argv=()):
@@ -127,6 +129,7 @@ def main(argv=()):
 
 if __name__ == "__main__":  # self-check: versions, gate, migrate, rollback in a temp root
     import tempfile
+    ollama.refresh = lambda: None  # no real Ollama rebuild from a temp root
     d = tempfile.mkdtemp()
     config.ADAPTER_ROOT, config.DATA = d, d
     config.MODEL_ADAPTERS = os.path.join(d, "m")

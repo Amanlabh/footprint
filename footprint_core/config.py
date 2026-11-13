@@ -20,7 +20,6 @@ ENTRY = os.path.join(ROOT, "footprint.py")
 MODEL = os.environ.get("FOOTPRINT_MODEL",
                        "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit" if IS_MAC
                        else "Qwen/Qwen2.5-Coder-1.5B-Instruct")
-PORT = os.environ.get("FOOTPRINT_PORT", "8399")
 # versioned adapters: adapters/<model>/vN/ + an `active` file naming the live one (switch = rollback)
 MODEL_ADAPTERS = os.path.join(ADAPTER_ROOT, re.sub(r"[^\w.-]+", "--", MODEL))
 
