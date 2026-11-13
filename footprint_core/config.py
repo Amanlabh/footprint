@@ -47,6 +47,16 @@ LORA_LAYERS = os.environ.get("FOOTPRINT_LORA_LAYERS", "half")
 # grad checkpointing: same weights, less memory, ~20-30% slower. auto = off unless the model is big for this
 # machine's RAM; an out-of-memory crash retries with it on (resuming from the last checkpoint)
 GRAD_CKPT = os.environ.get("FOOTPRINT_GRAD_CKPT", "auto")
+# lesson selection (select.py): train on the STEP_BUDGET lessons that teach the most, not on everything twice
+SELECT = os.environ.get("FOOTPRINT_SELECT", "on") != "off"
+STEP_BUDGET = int(os.environ.get("FOOTPRINT_STEP_BUDGET", "300"))  # max lessons picked = max training steps
+# lessons scored per validation check. 25 took ~70 s per check on a 16 GB M2 = a quarter of the run
+VAL_BATCHES = int(os.environ.get("FOOTPRINT_VAL_BATCHES", "12"))
+PATIENCE = int(os.environ.get("FOOTPRINT_PATIENCE", "2"))  # stop after this many evals in a row without a better val loss
+# opt-in: "llmlingua" shortens long tool outputs in TRAIN lessons (compress.py). Off by default: the model then
+# trains on compressed context but sees full context at run time — check the test loss before keeping it
+COMPRESS = os.environ.get("FOOTPRINT_COMPRESS", "")
+COMPRESS_RATE = float(os.environ.get("FOOTPRINT_COMPRESS_RATE", "0.5"))  # share of tokens kept
 MIN_EVAL = int(os.environ.get("FOOTPRINT_MIN_EVAL", "10"))  # valid/test smaller than this = loss is noise, no early stop
 SEQ_MIN, SEQ_MAX = 512, 4096  # max seq length is fitted to the longest lesson in YOUR data, within these bounds
 CTX_BUDGET = 6000      # chars of history per training example
@@ -99,15 +109,18 @@ def ensure_test():
     return test
 
 
-def resolve_iters():
+def resolve_iters(n=None, budget=None):
     """Training steps. FOOTPRINT_ITERS overrides; else EPOCHS passes over the
     train set (batch-1 => 1 step/example), clamped to [100, ITERS_CAP].
-    Fixed 300 iters saw <1 epoch of a few-thousand-example set — this scales."""
+    n: lessons actually trained on (after selection). budget: with lesson selection the run never exceeds
+    STEP_BUDGET — the first release's fixed 300 steps, but spent on picked lessons instead of the first 300."""
     if ITERS:
         return str(ITERS)
-    tr = os.path.join(DATA, "train.jsonl")
-    n = sum(1 for _ in open(tr)) if os.path.exists(tr) else 0
-    return str(max(100, min(ITERS_CAP, math.ceil(EPOCHS * n / max(BATCH, 1)))))
+    if n is None:
+        tr = os.path.join(DATA, "train.jsonl")
+        n = sum(1 for _ in open(tr)) if os.path.exists(tr) else 0
+    steps = max(100, min(ITERS_CAP, math.ceil(EPOCHS * n / max(BATCH, 1))))
+    return str(min(steps, budget) if budget else steps)
 
 
 def model_config():
@@ -256,4 +269,7 @@ if __name__ == "__main__":  # sanity: ITERS override + clamp/epoch math
     assert _f(5713) == 2000   # big set hits cap
     assert _f(200) == 600     # mid set = 3 epochs
     assert _f(5) == 100       # tiny set floored
+    globals()["ITERS"] = None
+    assert resolve_iters(397, 300) == "300" and resolve_iters(63, 300) == "126" and resolve_iters(20, 300) == "100"
+    assert resolve_iters(397) == "794"  # selection off: as before
     print("resolve_iters clamp/epoch math ok")
