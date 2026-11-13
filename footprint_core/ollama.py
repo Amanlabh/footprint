@@ -13,6 +13,7 @@ URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 if "://" not in URL:
     URL = "http://" + URL
 NAME = "footprint"
+KEEP = os.environ.get("FOOTPRINT_KEEP_ALIVE", "30m")  # unload after this idle; reload = re-read whole chat
 # HF layer names -> llama.cpp/GGUF names (Qwen2 / Llama-style blocks)
 PROJ = {"self_attn.q_proj": "attn_q", "self_attn.k_proj": "attn_k", "self_attn.v_proj": "attn_v",
         "self_attn.o_proj": "attn_output", "mlp.gate_proj": "ffn_gate", "mlp.up_proj": "ffn_up",
@@ -90,7 +91,10 @@ def build():
         sys.exit(f"Ollama not running at {URL}. start the Ollama app, or: ollama serve")
     b = base()
     subprocess.run(["ollama", "pull", b], check=True)
-    lines = [f"FROM {b}"]
+    # OpenCode's first prompt (system + tools) is ~12k tokens: Ollama's default 4096 truncates it, and a
+    # truncated prompt never hits the prefix cache (every turn re-reads everything). KV for 32k ~0.9 GB.
+    ctx = int(os.environ.get("FOOTPRINT_NUM_CTX") or (32768 if (config.ram_gb() or 0) >= 15 else 16384))
+    lines = [f"FROM {b}", f"PARAMETER num_ctx {ctx}"]
     v = config.active_version()  # not config.ADAPTERS: that is fixed at import, stale after `adapter use`
     path = os.path.join(config.MODEL_ADAPTERS, v or "none")
     if any(os.path.exists(os.path.join(path, f)) for f in ("adapters.safetensors", "adapter_model.safetensors")):
@@ -102,7 +106,17 @@ def build():
     os.makedirs(config.MODEL_ADAPTERS, exist_ok=True)
     open(mf, "w", encoding="utf-8").write("\n".join(lines) + "\n")
     subprocess.run(["ollama", "create", NAME, "-f", mf], check=True)
+    warm()
     print(f"ollama model '{NAME}' = {b} + {what}\nOpenAI-compatible API: {URL}/v1  (model name: {NAME})")
+
+
+def warm():
+    """Load `footprint` now and keep it KEEP after the last ping (the /v1 API can't set keep_alive)."""
+    try:
+        urllib.request.urlopen(urllib.request.Request(URL + "/api/generate", json.dumps(
+            {"model": NAME, "keep_alive": KEEP}).encode()), timeout=120)
+    except OSError as e:
+        print(f"(could not preload {NAME}: {e})")
 
 
 def refresh():
