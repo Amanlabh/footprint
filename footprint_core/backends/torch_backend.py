@@ -1,5 +1,5 @@
 """Linux/Windows backend: transformers + peft (CUDA if available, else CPU)."""
-import json, os
+import os
 
 from .. import adapters, config
 
@@ -74,74 +74,3 @@ def evaluate(path=None):
     loss = trainer.evaluate()["eval_loss"]
     print(f"Test loss {loss:.3f}, Test ppl {math.exp(loss):.3f}")
     return round(loss, 3)
-
-
-def serve():
-    import torch
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    tok = AutoTokenizer.from_pretrained(config.MODEL)
-    model = AutoModelForCausalLM.from_pretrained(config.MODEL, torch_dtype="auto", device_map="auto")
-    if config.has_adapter():
-        from peft import PeftModel
-        model = PeftModel.from_pretrained(model, config.ADAPTERS)
-    else:
-        print("(no adapter yet — serving base model; run train first for footprint behavior)")
-    model.eval()
-
-    def generate(messages, max_tokens, temperature):
-        ids = tok.apply_chat_template(messages, add_generation_prompt=True,
-                                      return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            out = model.generate(ids, max_new_tokens=max_tokens, do_sample=temperature > 0,
-                                 temperature=max(temperature, 1e-3),
-                                 pad_token_id=tok.eos_token_id)
-        return tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True)
-
-    class Handler(BaseHTTPRequestHandler):
-        def _json(self, obj, ctype="application/json"):
-            body = json.dumps(obj).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def do_GET(self):
-            if self.path.startswith("/v1/models"):
-                self._json({"object": "list", "data": [{"id": "footprint", "object": "model"}]})
-            else:
-                self.send_error(404)
-
-        def do_POST(self):
-            if self.path.rstrip("/") != "/v1/chat/completions":
-                self.send_error(404)
-                return
-            req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            text = generate(req.get("messages", []), req.get("max_tokens") or 1024,
-                            req.get("temperature") if req.get("temperature") is not None else 0.7)
-            if req.get("stream"):
-                # ponytail: whole answer as one SSE chunk; true token streaming if UX needs it
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.end_headers()
-                for payload in (
-                        {"id": "fp", "object": "chat.completion.chunk", "model": "footprint",
-                         "choices": [{"index": 0, "delta": {"role": "assistant", "content": text},
-                                      "finish_reason": None}]},
-                        {"id": "fp", "object": "chat.completion.chunk", "model": "footprint",
-                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}):
-                    self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
-                self.wfile.write(b"data: [DONE]\n\n")
-            else:
-                self._json({"id": "fp", "object": "chat.completion", "model": "footprint",
-                            "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
-                                         "finish_reason": "stop"}]})
-
-        def log_message(self, *a):
-            pass
-
-    print(f"OpenAI-compatible API: http://127.0.0.1:{config.PORT}/v1  (model name: footprint)\n"
-          f"device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
-    ThreadingHTTPServer(("127.0.0.1", int(config.PORT)), Handler).serve_forever()

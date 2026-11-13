@@ -7,8 +7,8 @@ Commands:
   train                 LoRA v2 on data/ -> new adapter version (live only if test loss improves)
   eval                  test loss + perplexity of the footprint adapter on held-out data
   adapter [use vN]      list adapter versions (* = live) with losses; use vN = switch / roll back
-  serve                 OpenAI-compatible API at localhost:8399 (install runs this for you)
-  install               auto-start server (launchd / systemd / Task Scheduler) + OpenCode /footprint
+  serve                 (re)build Ollama model `footprint` from the live adapter (install does this)
+  install               serve via Ollama (localhost:11434/v1, model footprint) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
   bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
   recall [text|--embed] similar past tasks from all your sessions (hook: added to each prompt); --embed = index all for semantic search
@@ -25,7 +25,7 @@ Commands:
 """
 import os, sys
 
-from . import adapters, bench, config, context, memory, service, switch, transcripts, vault
+from . import adapters, bench, config, context, memory, ollama, service, switch, transcripts, vault
 from .backends import get
 
 
@@ -39,7 +39,7 @@ def main(argv=None):
      "train": lambda: get().train(),
      "eval": lambda: get().evaluate(),
      "adapter": lambda: adapters.main(argv[1:]),
-     "serve": lambda: get().serve(),
+     "serve": ollama.build,
      "install": service.install,
      "context": lambda: context.show(argv[1:]),
      "switch": lambda: switch.switch(argv[1:]),

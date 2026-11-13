@@ -1,7 +1,7 @@
 """trace / status / setup / install — everything that isn't parsing or the model."""
-import json, os, plistlib, subprocess, sys, time
+import json, os, subprocess, sys, time
 
-from . import config
+from . import config, ollama
 
 
 def trace():
@@ -18,21 +18,17 @@ def trace():
 def status():
     tr = os.path.join(config.DATA, "train.jsonl")
     n = sum(1 for _ in open(tr, encoding="utf-8")) if os.path.exists(tr) else 0
-    installed = os.path.exists(config.LAUNCHD) if config.IS_MAC else \
-        os.path.exists(config.SYSTEMD) if not config.IS_WIN else \
-        subprocess.run(["schtasks", "/Query", "/TN", "footprint-serve"],
-                       capture_output=True).returncode == 0
     print(f"backend: {'mlx' if config.IS_MAC else 'torch'}\nmodel: {config.MODEL}\nexamples: {n}\n"
           f"adapter: {'yes' if config.has_adapter() else 'no'}\n"
           f"tracing: {'armed since ' + time.ctime(float(open(config.TRACE_MARK, encoding='utf-8').read())) if os.path.exists(config.TRACE_MARK) else 'off (collect uses all history)'}\n"
-          f"server: {'auto-managed' if installed else 'not installed (run install)'}")
+          f"server: {'ollama ' + ollama.URL if ollama.up() else 'ollama not running (install: footprint install)'}")
 
 
 def setup():
     venv = os.path.join(config.ROOT, ".venv")
     if not os.path.exists(venv):
         subprocess.run([sys.executable, "-m", "venv", venv], check=True)
-    pkgs = ["mlx-lm"] if config.IS_MAC else ["torch", "transformers", "peft", "trl", "datasets"]
+    pkgs = ["mlx-lm", "gguf"] if config.IS_MAC else ["torch", "transformers", "peft", "trl", "datasets", "gguf"]
     if not config.IS_MAC:
         print("installing torch + transformers stack (one-time, ~2 GB)…")
     subprocess.run([config.VENV_PY, "-m", "pip", "install", "-q", *pkgs], check=True)
@@ -51,7 +47,7 @@ def _opencode():
     cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {"$schema": "https://opencode.ai/config.json"}
     cfg.setdefault("provider", {})["footprint"] = {
         "npm": "@ai-sdk/openai-compatible", "name": "footprint",
-        "options": {"baseURL": f"http://127.0.0.1:{config.PORT}/v1"},
+        "options": {"baseURL": f"{ollama.URL}/v1"},
         "models": {"footprint": {"name": "footprint"}}}
     os.makedirs(os.path.join(config.OPENCODE, "commands"), exist_ok=True)
     with open(cfg_path, "w", encoding="utf-8") as f:
@@ -61,37 +57,26 @@ def _opencode():
                 "model: footprint/footprint\n---\n$ARGUMENTS\n")
 
 
+def _drop_legacy_server():
+    """Before Ollama, install registered its own server (port 8399). Remove it so it stops eating RAM."""
+    if config.IS_MAC and os.path.exists(config.LAUNCHD):
+        subprocess.run(["launchctl", "unload", config.LAUNCHD], capture_output=True)
+        os.remove(config.LAUNCHD)
+    elif config.IS_WIN:
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", "footprint-serve"], capture_output=True)
+    elif os.path.exists(config.SYSTEMD):
+        subprocess.run(["systemctl", "--user", "disable", "--now", "footprint"], capture_output=True)
+        os.remove(config.SYSTEMD)
+
+
 def install():
-    """Register the server with the OS so it runs itself. User never runs serve."""
+    """Build the `footprint` model in Ollama (Ollama runs itself) + OpenCode /footprint."""
     if not os.path.exists(config.VENV_PY):
         sys.exit("no .venv. run: footprint setup")
-    if config.IS_MAC:
-        os.makedirs(os.path.dirname(config.LAUNCHD), exist_ok=True)
-        with open(config.LAUNCHD, "wb") as f:
-            plistlib.dump({"Label": "com.footprint.serve",
-                           "ProgramArguments": [config.VENV_PY, config.ENTRY, "serve"],
-                           "RunAtLoad": True, "KeepAlive": True,
-                           "StandardOutPath": "/tmp/footprint-serve.log",
-                           "StandardErrorPath": "/tmp/footprint-serve.log"}, f)
-        subprocess.run(["launchctl", "unload", config.LAUNCHD], capture_output=True)
-        subprocess.run(["launchctl", "load", "-w", config.LAUNCHD], check=True)
-        how = "launchd (log: /tmp/footprint-serve.log)"
-    elif config.IS_WIN:
-        subprocess.run(["schtasks", "/Create", "/F", "/TN", "footprint-serve", "/SC", "ONLOGON",
-                        "/TR", f'"{config.VENV_PY}" "{config.ENTRY}" serve'], check=True)
-        subprocess.run(["schtasks", "/Run", "/TN", "footprint-serve"], check=True)
-        how = "Task Scheduler (task: footprint-serve)"
-    else:
-        os.makedirs(os.path.dirname(config.SYSTEMD), exist_ok=True)
-        with open(config.SYSTEMD, "w", encoding="utf-8") as f:
-            f.write("[Unit]\nDescription=footprint local model server\n\n"
-                    f"[Service]\nExecStart={config.VENV_PY} {config.ENTRY} serve\nRestart=always\n\n"
-                    "[Install]\nWantedBy=default.target\n")
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        subprocess.run(["systemctl", "--user", "enable", "--now", "footprint"], check=True)
-        how = "systemd --user (journalctl --user -u footprint)"
+    ollama.build()
+    _drop_legacy_server()
     _opencode()
     print(f"installed:\n"
-          f"  server: {how} keeps http://127.0.0.1:{config.PORT}/v1 running\n"
+          f"  server: Ollama serves model 'footprint' at {ollama.URL}/v1 (Ollama starts at login)\n"
           f"  opencode: /footprint <task> uses it; or pick model 'footprint' via /models\n"
-          f"  cursor/codex: base URL http://127.0.0.1:{config.PORT}/v1, any api key")
+          f"  cursor/codex: base URL {ollama.URL}/v1, any api key, model footprint")

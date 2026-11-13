@@ -1,4 +1,4 @@
-"""Apple Silicon backend: mlx-lm (train + OpenAI-compatible server)."""
+"""Apple Silicon backend: mlx-lm (train + eval; serving is Ollama, see ollama.py)."""
 import glob, json, os, re, shutil, signal, subprocess, sys, time
 
 from .. import adapters, compress, config, select
@@ -244,15 +244,3 @@ def evaluate(path=None, plan=None):
     print(r.stdout[-400:] + r.stderr[-400:] if r.returncode else r.stdout.strip().splitlines()[-1])
     m = re.search(r"Test loss ([\d.]+)", r.stdout)
     return float(m.group(1)) if m else None
-
-
-def serve():
-    args = [sys.executable, "-m", "mlx_lm", "server", "--model", config.MODEL,
-            "--host", "127.0.0.1", "--port", config.PORT]
-    if config.has_adapter():
-        args += ["--adapter-path", config.ADAPTERS]
-        print(f"adapter: {config.active_version()}")
-    else:
-        print("(no adapter yet — serving base model; run train first for footprint behavior)")
-    print(f"OpenAI-compatible API: http://127.0.0.1:{config.PORT}/v1  (model name: footprint)")
-    subprocess.run(args, check=True)

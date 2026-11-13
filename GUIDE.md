@@ -121,11 +121,11 @@ footprint train       # LoRA fine-tune (~10 min, downloads ~1 GB base model firs
 footprint install
 ```
 
-This registers the server with your OS — launchd (macOS), systemd (Linux) or
-Task Scheduler (Windows) — so it starts at login, restarts if it crashes, and
-you never run it by hand. It also wires up OpenCode:
+This builds the `footprint` model in [Ollama](https://ollama.com/download): your adapter,
+converted to GGUF, on `qwen2.5-coder:1.5b`. Ollama starts at login, so you never run a
+server by hand. A new live adapter (`train`, `adapter use`) rebuilds it. It also wires up OpenCode:
 
-- provider `footprint` at `http://127.0.0.1:8399/v1`
+- provider `footprint` at `http://127.0.0.1:11434/v1`
 - a `/footprint <task>` command inside OpenCode
 
 **5. Claude quota over? Keep going.**
@@ -140,9 +140,9 @@ Or point any OpenAI-compatible tool at the server:
 
 | Tool | Setting |
 |---|---|
-| **Cursor** | Settings → Models → OpenAI base URL `http://127.0.0.1:8399/v1`, any API key, add model `footprint` |
+| **Cursor** | Settings → Models → OpenAI base URL `http://127.0.0.1:11434/v1`, any API key, add model `footprint` |
 | **Codex CLI** | custom provider with that base URL in `~/.codex/config.toml` |
-| **anything else** | base URL `http://127.0.0.1:8399/v1`, API key: none |
+| **anything else** | base URL `http://127.0.0.1:11434/v1`, API key: none |
 
 ## Commands
 
@@ -153,13 +153,13 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint collect [dir]` | parse transcripts of a project (default: current dir; unknown dir = all projects) |
 | `footprint train` | LoRA fine-tune on collected data |
 | `footprint eval` | test loss + perplexity of the trained adapter on held-out data (lower = better) |
-| `footprint install` | auto-start server (launchd / systemd / Task Scheduler) + OpenCode integration |
+| `footprint install` | serve via Ollama (model `footprint`) + OpenCode integration |
 | `footprint context install` | continuity: new Claude Code sessions start with the previous session's state (goal, files, todos, last error, where it ended) via a SessionStart hook; OpenCode via plugin (+ `/continue` for open sessions); works both ways |
 | `footprint switch list` | this project's recent Claude Code sessions with ids, age, message count, topic |
 | `footprint switch <id>` | open a specific one (first 8 chars of the id are enough) |
 | `footprint switch` | open this project's latest Claude Code chat in OpenCode — the full conversation (prompts, replies, tool calls), not a summary |
 | `footprint context` | preview what the next session will be handed |
-| `footprint serve` | run the server manually (fallback; `install` makes this unnecessary) |
+| `footprint serve` | rebuild the Ollama model `footprint` from the live adapter (`install` and `adapter use` do this) |
 | `footprint status` | model, example count, adapter, tracing, server state |
 
 ## Configuration
@@ -172,14 +172,15 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
 | `FOOTPRINT_TEST_BATCHES` | `25` | batches scored by `eval` (`-1` = whole test split) |
-| `FOOTPRINT_PORT` | `8399` | server port |
+| `FOOTPRINT_OLLAMA_BASE` | from `FOOTPRINT_MODEL` (`qwen2.5-coder:1.5b`) | Ollama base model the adapter is applied to |
+| `OLLAMA_HOST` | `127.0.0.1:11434` | where Ollama listens |
 | `FOOTPRINT_CONTEXT_CAP` | `4000` | max chars of previous-session state injected (~1k tokens) |
 | `FOOTPRINT_CONTEXT_MAX_AGE_H` | `168` | previous session older than this = stale, nothing injected |
 
 ## Troubleshooting
 
 - **`no transcripts found`** — either you haven't used Claude Code in this project, or the trace marker is newer than all sessions. Chat first, or `rm ~/.claude/footprint-trace`.
-- **server not responding** — macOS: `/tmp/footprint-serve.log`, `launchctl kickstart -k gui/$UID/com.footprint.serve`; Linux: `journalctl --user -u footprint`, `systemctl --user restart footprint`; Windows: `schtasks /Run /TN footprint-serve`.
+- **server not responding** — footprint is served by Ollama: start the Ollama app (or `ollama serve`), then `footprint serve` to rebuild the model. `ollama list` should show `footprint`.
 - **backend import fails** (`mlx_lm` / `torch`) — re-run `footprint setup`.
 - **quality is rough** — more data beats more iterations: keep tracing, re-collect, re-train. 1.5B is small; try `FOOTPRINT_MODEL=mlx-community/Qwen2.5-Coder-7B-Instruct-4bit` if you have ≥16 GB RAM.
 
