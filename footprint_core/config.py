@@ -137,6 +137,66 @@ def fit_seq(lengths):
     return max(SEQ_MIN, min(SEQ_MAX, -(-top // 256) * 256))
 
 
+def ntok(r):
+    """Token count of an apply_chat_template(tokenize=True) result. transformers 4 returns a list of ids;
+    transformers 5 returns a BatchEncoding (len() == 2 = its keys, which made every lesson look 2 tokens long)."""
+    if hasattr(r, "keys"):
+        r = r["input_ids"]
+    if len(r) and isinstance(r[0], (list, tuple)):  # batched: [[ids]]
+        r = r[0]
+    return len(r)
+
+
+MAX_SEQ = os.environ.get("FOOTPRINT_MAX_SEQ")  # force a max length (tokens); unset = from RAM (seq_cap)
+RAM_SHARE = float(os.environ.get("FOOTPRINT_RAM_SHARE", "0.55"))  # share of RAM one training step may use
+
+
+def seq_cap(cfg=None, ram=None):
+    """Longest lesson (tokens) this machine can train on without swapping, grad checkpointing on.
+    Peak memory ~ weights + output scores: seq x vocab x 4 bytes x ~3 copies (logits, softmax, gradient).
+    Checked against a real run: 1.5B-4bit, seq 2765 -> 6.0 GB predicted, 6.1 GB measured (16 GB M2).
+    8 GB M1 at seq 4096 -> 8.4 GB predicted: swapped, 0 steps in 8 min. ponytail: RAM_SHARE 0.55 is a
+    first guess for small machines; a loss that only scores the answer tokens would lift this cap ~15x."""
+    if MAX_SEQ:
+        return max(SEQ_MIN, int(MAX_SEQ))
+    ram = ram if ram is not None else ram_gb()
+    if not ram:
+        return SEQ_MAX
+    cfg = cfg if cfg is not None else model_config()
+    m = re.search(r"(\d+(?:\.\d+)?)[bB]\b", MODEL)
+    weights = float(m.group(1)) * (0.6 if re.search(r"4-?bit|q4", MODEL, re.I) else 2.0) if m else 2.0
+    per_tok = cfg.get("vocab_size", 152000) * 4 * 3 / 1e9  # GB per token of sequence
+    fit = int((RAM_SHARE * ram - weights) / per_tok)
+    return max(SEQ_MIN, min(SEQ_MAX, fit // 256 * 256))
+
+
+def trim(messages, count, cap):
+    """Shorten one lesson to <= cap tokens by dropping the OLDEST context; the answer (last message), the
+    system prompt and the ask it answers (last user message) are never cut. An assistant turn goes together
+    with its tool results, so no result is left without its call. -> messages, or None if even
+    system + ask + answer don't fit. count(messages) -> tokens."""
+    if count(messages) <= cap:
+        return messages
+    head, ctx, answer = messages[:1], messages[1:-1], messages[-1:]
+    blocks = []  # a user message | an assistant message + the tool results that follow it
+    for m in ctx:
+        if m["role"] == "tool" and blocks:
+            blocks[-1].append(m)
+        else:
+            blocks.append([m])
+    ask = max((i for i, b in enumerate(blocks) if b[0]["role"] == "user"), default=None)
+    if ask is None:
+        return None
+    blocks = blocks[ask:]  # everything before the ask goes first (older turns)
+    while True:
+        out = head + [m for b in blocks for m in b] + answer
+        if count(out) <= cap:
+            return out
+        if len(blocks) == 1:
+            return None
+        del blocks[1]  # then the oldest steps of this turn, right after the ask
+
+
 def ram_gb():
     try:
         if IS_MAC:
@@ -175,6 +235,19 @@ OOM = re.compile(r"out of memory|insufficient memory|unable to allocate|outofmem
 
 if __name__ == "__main__":  # sanity: ITERS override + clamp/epoch math
     assert fit_seq([1387, 2765]) == 2816 and fit_seq([100]) == 512 and fit_seq([9000]) == 4096 and fit_seq([]) == 4096
+    assert ntok([1, 2, 3]) == 3 and ntok({"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}) == 3  # transformers 4 / 5
+    assert ntok({"input_ids": [[1, 2, 3, 4]], "attention_mask": [[1] * 4]}) == 4
+    _c = {"vocab_size": 151936}
+    assert seq_cap(_c, ram=8.0) == 1792 and seq_cap(_c, ram=17.2) == 4096 and seq_cap(_c, ram=0) == 4096, seq_cap(_c, ram=8.0)
+    _n = lambda ms: sum(len(m["content"]) for m in ms)
+    _m = lambda r, n, **k: {"role": r, "content": "x" * n, **k}
+    _l = [_m("system", 10), _m("user", 100), _m("assistant", 100), _m("user", 50), _m("assistant", 200), _m("tool", 300),
+          _m("assistant", 100), _m("tool", 100), _m("assistant", 40)]
+    assert trim(_l, _n, 2000) is _l
+    assert [m["content"] for m in trim(_l, _n, 850)] == [m["content"] for m in _l[:1] + _l[3:]]   # older turn dropped
+    _t = trim(_l, _n, 400)  # then the oldest call + its result, together
+    assert [(m["role"], len(m["content"])) for m in _t] == [("system", 10), ("user", 50), ("assistant", 100), ("tool", 100), ("assistant", 40)]
+    assert [len(m["content"]) for m in trim(_l, _n, 100)] == [10, 50, 40] and trim(_l, _n, 99) is None  # ask + answer always whole
     assert lora_layers(28) == 14 and lora_layers(None) == -1
     globals()["LORA_LAYERS"] = "all"; assert lora_layers(28) == 28
     globals()["LORA_LAYERS"] = "8"; assert lora_layers(28) == 8
