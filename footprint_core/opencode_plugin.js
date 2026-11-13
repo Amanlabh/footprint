@@ -29,6 +29,15 @@ export const Footprint = async ({ directory }) => {
     // session memory: similar past work for this prompt, as a hidden (synthetic) part of the
     // user's message — not the system prompt, so the prompt cache stays intact.
     "chat.message": async (input, output) => {
+      // footprint model in Ollama: (re)load it now and keep it 30 min past this message. Ollama's /v1
+      // API ignores keep_alive, and an unload means re-reading the whole chat (~12k+ tokens) next turn.
+      if (input.model?.providerID === "footprint") {
+        const host = (process.env.OLLAMA_HOST || "127.0.0.1:11434").replace(/^(?!https?:\/\/)/, "http://")
+        fetch(host + "/api/generate", {
+          method: "POST",
+          body: JSON.stringify({ model: input.model.modelID, keep_alive: process.env.FOOTPRINT_KEEP_ALIVE || "30m" }),
+        }).catch(() => {})
+      }
       const prompt = output.parts
         .filter((p) => p.type === "text" && !p.synthetic)
         .map((p) => p.text)
