@@ -238,7 +238,7 @@ if __name__ == "__main__":  # sanity: ITERS override + clamp/epoch math
     assert ntok([1, 2, 3]) == 3 and ntok({"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}) == 3  # transformers 4 / 5
     assert ntok({"input_ids": [[1, 2, 3, 4]], "attention_mask": [[1] * 4]}) == 4
     _c = {"vocab_size": 151936}
-    assert seq_cap(_c, ram=8.0) == 1792 and seq_cap(_c, ram=17.2) == 4096 and seq_cap(_c, ram=None) == 4096, seq_cap(_c, ram=8.0)
+    assert seq_cap(_c, ram=8.0) == 1792 and seq_cap(_c, ram=17.2) == 4096 and seq_cap(_c, ram=0) == 4096, seq_cap(_c, ram=8.0)
     _n = lambda ms: sum(len(m["content"]) for m in ms)
     _m = lambda r, n, **k: {"role": r, "content": "x" * n, **k}
     _l = [_m("system", 10), _m("user", 100), _m("assistant", 100), _m("user", 50), _m("assistant", 200), _m("tool", 300),
