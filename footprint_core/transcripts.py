@@ -64,10 +64,11 @@ def _clean(t):
     return re.sub(r"<local-command-caveat>.*?</local-command-caveat>", "", t, flags=re.S).strip()
 
 
-def parse_native(path):
+def parse_native(path, errors=None):
     """Transcript -> chat messages in the model's native shape: assistant {content, tool_calls} with
     OpenCode tool names, role "tool" results. This is what the chat template renders at train time
-    and what the model sees from OpenCode at run time."""
+    and what the model sees from OpenCode at run time.
+    errors: optional set, filled with the ids of tool calls whose result came back as an error."""
     msgs, skip = [], set()
     for line in open(path, encoding="utf-8", errors="replace"):
         try:
@@ -104,6 +105,8 @@ def parse_native(path):
             if b.get("type") == "tool_result":
                 if b.get("tool_use_id") in skip:
                     continue
+                if b.get("is_error") and errors is not None:
+                    errors.add(b.get("tool_use_id"))
                 c = b.get("content")
                 c = "".join(x.get("text", "") for x in c) if isinstance(c, list) else str(c or "")
                 msgs.append({"role": "tool", "tool_call_id": b.get("tool_use_id"), "content": _clean(c)[:config.RESULT_CAP]})
@@ -164,7 +167,7 @@ def collect(project=None):
     one = os.path.isdir(pdir) and not every
     dirs = [pdir] if one else glob.glob(os.path.join(config.PROJECTS, "*"))
     held = holdout()
-    sessions, seen, dupes, dropped = [], set(), 0, 0
+    sessions, seen, dupes, dropped, botched = [], set(), 0, 0, 0
     from .memory import ARCHIVE
     live = [f for d in dirs for f in glob.glob(os.path.join(d, "*.jsonl"))]
     names = {os.path.basename(f) for f in live}  # archived (redacted) copies stand in for sessions Claude Code deleted
@@ -174,7 +177,8 @@ def collect(project=None):
         for f in files:
             if os.path.getmtime(f) < since or os.path.basename(f)[:-6] in held:
                 continue  # held-out bench sessions never become training data
-            msgs = [_redact_obj(m) for m in parse_native(f)]
+            errs = set()
+            msgs = [_redact_obj(m) for m in parse_native(f, errs)]
             if len(msgs) < 2:
                 continue
             bad, examples = rejected(msgs), []
@@ -185,6 +189,9 @@ def collect(project=None):
                 if bad[i]:
                     dropped += 1
                     continue
+                if any(c["id"] in errs and c["function"]["name"] != "bash" for c in m.get("tool_calls", ())):
+                    botched += 1  # a read/edit/write/grep the tool refused (file not read yet, text not found…)
+                    continue      # is a mistake, not a habit. A failing shell command (tests!) is kept.
                 if len(json.dumps(m)) > 4000:  # ~1.3k tokens of answer: with context it overflows 4096 and the
                     continue                   # truncation would cut the answer itself (big file writes)
                 ctx, size = [], 0
@@ -249,5 +256,5 @@ def collect(project=None):
     print(f"collected {sum(counts.values())} accepted examples from {len(sessions)} sessions "
           f"({counts['train']} train / {counts['valid']} valid / {counts['test']} test, split by session, newest = test)\n"
           f"  includes {mine} of your own commits as diffs · dropped {dropped} turns the user corrected or interrupted"
-          f" · {dupes} duplicates · secrets redacted\n"
+          f" · {botched} refused tool calls · {dupes} duplicates · secrets redacted\n"
           f"  -> {config.DATA}")
