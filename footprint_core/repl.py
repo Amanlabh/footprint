@@ -124,7 +124,7 @@ def run_cli(cmd, args):
 
 # the website's pixel octocat (UI-Web/app/icon.svg, 12x12), two pixels per character
 LOGO = ["  █▄    ▄█  ", " ▄████████▄ ", " █▄██████▄█ ", "  ████████  ", "  █▀▀██▀▀█  ", " ▄▀  ▀▀  ▀▄ "]
-LOGO_C = _rgb(229, 72, 111)  # #e5486f, the icon's fill
+LOGO_C = PRI  # the website draws it in text-primary (dark theme: oklch(0.72 0.18 14))
 
 
 def header():
