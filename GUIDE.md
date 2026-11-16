@@ -161,6 +161,7 @@ Or point any OpenAI-compatible tool at the server:
 | `footprint context` | preview what the next session will be handed |
 | `footprint serve` | rebuild the Ollama model `footprint` from the live adapter (`install` and `adapter use` do this) |
 | `footprint status` | model, example count, adapter, tracing, server state |
+| `footprint ask "<question>" [--yes]` | lean agent for the local model: runs commands (asks first unless `--yes`), reads files, searches the web and reads pages, then answers. Web: Wikipedia, Stack Overflow, GitHub, DuckDuckGo facts (no key) + whole web via Brave (your `BRAVE_API_KEY`, or footprint's server when logged in). Pages are read through r.jina.ai |
 
 ## Configuration
 
@@ -176,6 +177,8 @@ Or point any OpenAI-compatible tool at the server:
 | `OLLAMA_HOST` | `127.0.0.1:11434` | where Ollama listens |
 | `FOOTPRINT_NUM_CTX` | `32768` (16 GB+ RAM) / `16384` | context of the Ollama model; OpenCode's first prompt is ~12k tokens |
 | `FOOTPRINT_KEEP_ALIVE` | `30m` | how long the model stays loaded after your last OpenCode message |
+| `FOOTPRINT_AGENT_MODEL` | `footprint` | Ollama model `footprint ask` uses (e.g. `qwen2.5-coder:3b`) |
+| `BRAVE_API_KEY` | unset | your own Brave Search key for `footprint ask` web search (else footprint's server when logged in) |
 | `FOOTPRINT_CONTEXT_CAP` | `4000` | max chars of previous-session state injected (~1k tokens) |
 | `FOOTPRINT_CONTEXT_MAX_AGE_H` | `168` | previous session older than this = stale, nothing injected |
 

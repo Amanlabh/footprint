@@ -10,6 +10,7 @@ Commands:
   serve                 (re)build Ollama model `footprint` from the live adapter (install does this)
   install               serve via Ollama (localhost:11434/v1, model footprint) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
+  ask "<question>" [--yes]  lean agent for the local model: bash, read, web search (BRAVE_API_KEY); asks before each command
   bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
   recall [text|--embed] similar past tasks from all your sessions (hook: added to each prompt); --embed = index all for semantic search
   profile               what new sessions learn about you + this project (also part of `context`)
@@ -25,7 +26,7 @@ Commands:
 """
 import os, sys
 
-from . import adapters, bench, config, context, memory, ollama, service, switch, transcripts, vault
+from . import adapters, agent, bench, config, context, memory, ollama, service, switch, transcripts, vault
 from .backends import get
 
 
@@ -48,6 +49,7 @@ def main(argv=None):
      "facts": lambda: memory.facts_cmd(argv[1:]),
      "memory": lambda: memory.memory_cmd(argv[1:]),
      "bench": lambda: bench.main(argv[1:]),
+     "ask": lambda: agent.ask(argv[1:]),
      "status": service.status,
      "setup": service.setup,
      "login": lambda: vault.login(argv[1:]),
