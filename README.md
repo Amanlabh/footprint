@@ -68,7 +68,7 @@ Your Claude Code and OpenCode session logs feed two tracks:
      Inject into chats                    4 Fine-tune (LoRA)
      hooks add notes, every prompt          last 14 of 28 layers · mlx-lm
                  │                        5 Test gate
-                 │                          live only if test loss improves
+                 │                          live only if it beats base + active
                  │                        6 Serve
                  │                          local API for OpenCode, Cursor
                  │                                      │
@@ -87,7 +87,7 @@ into every prompt, so any model reuses how you solved it before.
    gets most wrong (surprise), keeps them spread across topics.
 3. Context length is capped to fit your RAM; oldest context is trimmed first.
 4. LoRA fine-tunes the last half of the layers (14 of 28 on Qwen2.5-Coder-1.5B, 4-bit MLX).
-5. The new adapter goes live only if its test loss beats the active one.
+5. The new adapter goes live only if its test loss beats both the base model and the active adapter, all scored on the same test set (older scores are re-measured).
 6. `footprint install` converts the adapter to GGUF (a few MB) and builds Ollama model `footprint`
    (`qwen2.5-coder:1.5b` + adapter) at `http://127.0.0.1:11434/v1` for OpenCode, Cursor, or any
    OpenAI-compatible tool. Ollama starts itself at login; a new live adapter rebuilds the model.

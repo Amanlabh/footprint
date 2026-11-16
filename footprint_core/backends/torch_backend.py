@@ -53,7 +53,8 @@ def train(force_ckpt=False):
     trainer.save_model(out)  # best checkpoint when early (load_best_model_at_end), else the last step
     os.remove(os.path.join(out, "progress.json"))
     adapters.finish(v, {"format": "native-v2", "iters": iters, "test_loss": evaluate(out), "early_stop": early,
-                        "val_loss": trainer.state.best_metric, "rank": config.LORA_RANK, "layers": layers, "seq": seq})
+                        "val_loss": trainer.state.best_metric, "rank": config.LORA_RANK, "layers": layers, "seq": seq},
+                    evaluate)
 
 
 def evaluate(path=None):

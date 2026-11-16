@@ -222,7 +222,8 @@ def train(force_ckpt=False):
                         "stopped_at": prog["done"] if plateau else iters, "lessons": plan["train_n"],
                         "picked_from": plan["picked"]["start"] if plan["picked"] else plan["train_n"],
                         "val_loss": prog["val"].get(str(best)), "test_loss": test, "layers": layers, "seq": seq,
-                        "grad_ckpt": ckpt, "rank": config.LORA_RANK, "lr": config.LEARNING_RATE})
+                        "grad_ckpt": ckpt, "rank": config.LORA_RANK, "lr": config.LEARNING_RATE},
+                    lambda p: evaluate(p, plan))
 
 
 OOM_RE = config.OOM
