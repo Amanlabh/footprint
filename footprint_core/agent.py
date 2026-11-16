@@ -184,7 +184,6 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
     def fake(msgs, fmt):
         seen.append(msgs[-1]["content"])
         return json.dumps(next(script))
-    os.environ.pop("BRAVE_API_KEY", None)
     assert ask(["what is the secret", "--yes"], fake, out=lambda *_: None) == "42"
     assert "exit 0\nhi" in seen[1] and "secret=42" in seen[2], seen
     os.environ.pop("TAVILY_API_KEY", None)

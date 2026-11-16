@@ -10,7 +10,7 @@ Commands:
   serve                 (re)build Ollama model `footprint` from the live adapter (install does this)
   install               serve via Ollama (localhost:11434/v1, model footprint) + OpenCode /footprint
   context [install]     previous Claude session's state for this project; install = SessionStart hook
-  ask "<question>" [--yes]  lean agent for the local model: bash, read, web search (BRAVE_API_KEY); asks before each command
+  ask "<question>" [--yes]  lean agent for the local model: bash, read, web search (Tavily, no key needed); asks before each command
   bench [harvest|run|upload]  Claude-parity benchmark on your own tasks (any model)
   recall [text|--embed] similar past tasks from all your sessions (hook: added to each prompt); --embed = index all for semantic search
   profile               what new sessions learn about you + this project (also part of `context`)
