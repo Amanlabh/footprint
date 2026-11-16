@@ -52,7 +52,11 @@ def _chat(messages, fmt):
 
 
 def bash(cmd, yes=False):
-    if not yes and input(f"  run `{cmd}`? [y/N] ").strip().lower() != "y":
+    try:
+        ok = yes or input(f"  run `{cmd}`? [y/N] ").strip().lower() == "y"
+    except EOFError:  # Ctrl-D / no input: same as no
+        ok = False
+    if not ok:
         return "the user declined to run this command"
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)

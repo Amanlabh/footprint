@@ -4,7 +4,7 @@ Colors = the website's dark theme (UI-Web/app/globals.css, converted from oklch)
 /login  browser sign-in: GitHub on the website -> key handed back to a one-shot listener on 127.0.0.1
 /model  pick any model Ollama has downloaded; remembered in ~/.footprint/model
 """
-import http.server, json, os, secrets, shutil, time, urllib.parse, urllib.request, webbrowser
+import http.server, json, math, os, secrets, shutil, sys, time, urllib.parse, urllib.request, webbrowser
 
 from . import agent, ollama, vault
 
@@ -140,6 +140,26 @@ def header():
     print(f"{PRI}╰{'─' * (w - 2)}╯{R}")
 
 
+def prompt():
+    """Claude Code-style input box: rule, ❯ line, rule, status underneath. -> the typed line.
+    After Enter the box is replaced by the message itself, like a chat transcript."""
+    if not sys.stdin.isatty():  # piped / scripted: plain prompt
+        return input(f"\n{PRI}{B}>{R} ")
+    w = shutil.get_terminal_size().columns
+    rule = f"{MUTED}{'─' * w}{R}"
+    who = "signed in" if os.path.exists(vault.KEY_FILE) else "not signed in · /login"
+    print(f"\n{rule}\n\n{rule}\n{MUTED}  {agent.MODEL} · {who} · /help for commands{R}", end="")
+    print("\x1b[2A\r", end="", flush=True)  # cursor back up from the status line to the empty line inside the box
+    try:
+        line = input(f"\001{FG}{B}\002❯\001{R}\002 ")  # \001..\002: readline doesn't count the color codes
+    except (EOFError, KeyboardInterrupt):
+        print("\n\x1b[J", end="")  # drop the rest of the box
+        raise
+    up = max(1, math.ceil((len(line) + 2) / w)) + 1  # the typed line(s) + the top rule
+    print(f"\x1b[{up}A\r\x1b[J{MUTED}❯ {line}{R}", flush=True)  # box -> plain transcript line
+    return line
+
+
 def styled(line):  # the agent's progress lines vs its answer
     s = str(line)
     say(s, MUTED if s.startswith("· ") else ACC if s.startswith("  [") else FG)
@@ -161,7 +181,7 @@ def main():
     own = {"help": help_cmd, "login": login_cmd, "logout": logout_cmd, "model": model_cmd}
     while True:
         try:
-            line = input(f"\n{PRI}{B}>{R} ").strip()
+            line = prompt().strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return
