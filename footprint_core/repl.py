@@ -122,15 +122,21 @@ def run_cli(cmd, args):
             say(e.code, PRI)
 
 
+# the website's pixel octocat (UI-Web/app/icon.svg, 12x12), two pixels per character
+LOGO = ["  █▄    ▄█  ", " ▄████████▄ ", " █▄██████▄█ ", "  ████████  ", "  █▀▀██▀▀█  ", " ▄▀  ▀▀  ▀▄ "]
+LOGO_C = _rgb(229, 72, 111)  # #e5486f, the icon's fill
+
+
 def header():
     name = "signed in" if os.path.exists(vault.KEY_FILE) else "not signed in · /login"
     w = min(shutil.get_terminal_size().columns, 72)
+    info = ["", f"{B}footprint{R}{FG}  your Claude, learned locally",
+            f"{MUTED}model {agent.MODEL} · {name}",
+            f"{MUTED}{os.getcwd().replace(os.path.expanduser('~'), '~')}",
+            f"{MUTED}/help for commands · /model to switch · Ctrl-D to quit", ""]
     print(f"{PRI}╭{'─' * (w - 2)}╮{R}")
-    for line in (f"{B}✻ footprint{R}{FG}  your Claude, learned locally",
-                 f"{MUTED}model {agent.MODEL} · {name}",
-                 f"{MUTED}{os.getcwd().replace(os.path.expanduser('~'), '~')}",
-                 f"{MUTED}/help for commands · /model to switch · Ctrl-D to quit"):
-        print(f"{PRI}│{R} {line}{R}")
+    for art, line in zip(LOGO, info):
+        print(f"{PRI}│{R} {LOGO_C}{art}{R}  {line}{R}")
     print(f"{PRI}╰{'─' * (w - 2)}╯{R}")
 
 
