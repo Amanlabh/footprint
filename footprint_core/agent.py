@@ -6,9 +6,10 @@ Each step the model must return one JSON action (Ollama structured output, so a 
 garble it): {"thought": <reasoning first>, "tool": bash|read|search|fetch|answer, "input": ...}.
 Short system prompt, few tools, the real tool output fed back: the model reads instead of guessing.
 bash asks before running each command unless --yes.
-Browsing, no key needed: search = Wikipedia + Stack Overflow + GitHub + DuckDuckGo instant answers (all keyless
-APIs) + the whole web via Brave: your own BRAVE_API_KEY, else footprint's server (`footprint login`; the
-server holds the Brave key, daily limit, queries not stored). fetch = r.jina.ai reads the page as text.
+Browsing, no key needed: search = the whole web via Tavily + Wikipedia + Stack Overflow + GitHub + DuckDuckGo
+instant answers. Tavily: your own TAVILY_API_KEY, else footprint's server when logged in (`footprint login`; the
+server holds a key, daily limit, queries not stored), else Tavily keyless (rate-limited per user).
+fetch = r.jina.ai reads the page as text.
 Privacy: queries go to those sites (web queries via footprint's server when logged in), fetched URLs via Jina.
 """
 import gzip, html, json, os, re, ssl, subprocess, sys, urllib.parse, urllib.request
@@ -72,8 +73,9 @@ except ImportError:
     CTX = ssl.create_default_context()
 
 
-def _get(url, headers=None, timeout=20):
-    r = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "footprint", **(headers or {})}),
+def _get(url, headers=None, timeout=20, body=None):
+    h = {"User-Agent": "footprint", **(headers or {}), **({"Content-Type": "application/json"} if body else {})}
+    r = urllib.request.urlopen(urllib.request.Request(url, json.dumps(body).encode() if body else None, h),
                                timeout=timeout, context=CTX)
     b = r.read()
     return (gzip.decompress(b) if r.headers.get("Content-Encoding") == "gzip" else b).decode("utf-8", "replace")
@@ -90,32 +92,36 @@ def _site_key():
         return None
 
 
+TAVILY = "https://api.tavily.com/search"
+
+
 def _sources(q):
-    """(name, url, headers, parse) per source; parse(json) -> [(title, url, snippet)]."""
+    """(name, url, headers, body, parse) per source; body = JSON to POST or None; parse(json) -> [(title, url, snippet)]."""
     e = urllib.parse.quote(q)
-    if os.environ.get("BRAVE_API_KEY"):  # whole web: own key first, else footprint's server (holds the key)
-        yield ("web", f"https://api.search.brave.com/res/v1/web/search?count=5&q={e}",
-               {"X-Subscription-Token": os.environ["BRAVE_API_KEY"], "Accept": "application/json"},
-               lambda d: [(h["title"], h["url"], h.get("description")) for h in d.get("web", {}).get("results", [])])
+    tav = lambda d: [(h["title"], h["url"], h.get("content")) for h in d["results"]]
+    if os.environ.get("TAVILY_API_KEY"):  # whole web: own key, else footprint's server (holds a key), else keyless
+        yield ("web", TAVILY, {"Authorization": f"Bearer {os.environ['TAVILY_API_KEY']}"}, {"query": q, "max_results": 5}, tav)
     elif _site_key():
-        yield ("web", f"{vault.API}/api/search?q={e}", {"Authorization": f"Bearer {_site_key()}"},
+        yield ("web", f"{vault.API}/api/search?q={e}", {"Authorization": f"Bearer {_site_key()}"}, None,
                lambda d: [(h["title"], h["url"], h.get("description")) for h in d["results"]])
-    yield ("wikipedia", f"https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=3&srsearch={e}", {},
+    else:
+        yield ("web", TAVILY, {"X-Tavily-Access-Mode": "keyless"}, {"query": q, "max_results": 5}, tav)
+    yield ("wikipedia", f"https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=3&srsearch={e}", {}, None,
            lambda d: [(h["title"], "https://en.wikipedia.org/wiki/" + h["title"].replace(" ", "_"), h["snippet"])
                       for h in d["query"]["search"]])
     yield ("stackoverflow", "https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&site=stackoverflow"
-           f"&pagesize=3&q={e}", {}, lambda d: [(h["title"], h["link"], f"{h['score']} votes") for h in d["items"]])
-    yield ("github", f"https://api.github.com/search/repositories?per_page=3&q={e}", {},
+           f"&pagesize=3&q={e}", {}, None, lambda d: [(h["title"], h["link"], f"{h['score']} votes") for h in d["items"]])
+    yield ("github", f"https://api.github.com/search/repositories?per_page=3&q={e}", {}, None,
            lambda d: [(h["full_name"], h["html_url"], h.get("description")) for h in d["items"]])
-    yield ("duckduckgo", f"https://api.duckduckgo.com/?format=json&no_html=1&q={e}", {},
+    yield ("duckduckgo", f"https://api.duckduckgo.com/?format=json&no_html=1&q={e}", {}, None,
            lambda d: [(d["Heading"], d["AbstractURL"], d["AbstractText"])] if d.get("AbstractText") else [])
 
 
 def search(query):
     lines = []
-    for name, url, h, parse in _sources(query):
+    for name, url, h, body, parse in _sources(query):
         try:
-            lines += [f"- [{name}] {_clean(t)} ({u}): {_clean(s)[:200]}" for t, u, s in parse(json.loads(_get(url, h)))]
+            lines += [f"- [{name}] {_clean(t)} ({u}): {_clean(s)[:200]}" for t, u, s in parse(json.loads(_get(url, h, body=body)))]
         except (OSError, ValueError, KeyError) as err:
             lines.append(f"- [{name}] failed: {err}")
     return "\n".join(lines) or "no results"
@@ -181,14 +187,22 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
     os.environ.pop("BRAVE_API_KEY", None)
     assert ask(["what is the secret", "--yes"], fake, out=lambda *_: None) == "42"
     assert "exit 0\nhi" in seen[1] and "secret=42" in seen[2], seen
-    canned = {"wikipedia": {"query": {"search": [{"title": "Public switched telephone network", "snippet": "the <b>PSTN</b>"}]}},
+    os.environ.pop("TAVILY_API_KEY", None)
+    canned = {"tavily": {"results": [{"title": "VoIP in India", "url": "https://ex.com/v", "content": "rules"}]},
+              "wikipedia": {"query": {"search": [{"title": "Public switched telephone network", "snippet": "the <b>PSTN</b>"}]}},
               "stackexchange": {"items": [{"title": "Count &amp; sort", "link": "https://so/q/1", "score": 5}]},
               "github": {"items": []}, "duckduckgo": {"AbstractText": ""}}
-    globals()["_get"] = lambda url, h=None, timeout=20: json.dumps(next(v for k, v in canned.items() if k in url))  # no network
+    calls = []
+    def fake_get(url, h=None, timeout=20, body=None):  # no network
+        calls.append((url, h, body))
+        return json.dumps(next(v for k, v in canned.items() if k in url))
+    globals()["_get"] = fake_get
     globals()["_site_key"] = lambda: None
     r = search("pstn")
     assert "[wikipedia] Public switched telephone network (https://en.wikipedia.org/wiki/Public_switched_telephone_network): the PSTN" in r, r
-    assert "[stackoverflow] Count & sort (https://so/q/1): 5 votes" in r and "[web]" not in r, r
+    assert "[stackoverflow] Count & sort (https://so/q/1): 5 votes" in r, r
+    assert r.startswith("- [web] VoIP in India (https://ex.com/v): rules"), r  # logged out: Tavily keyless
+    assert calls[0][1] == {"X-Tavily-Access-Mode": "keyless"} and calls[0][2]["query"] == "pstn", calls[0]
     assert "full http" in fetch("pstn")
     globals()["_site_key"] = lambda: "fp_test"  # logged in, no own Brave key -> web results via footprint's server
     canned["/api/search"] = {"results": [{"title": "Exotel", "url": "https://exotel.com", "description": "cloud telephony"}]}
