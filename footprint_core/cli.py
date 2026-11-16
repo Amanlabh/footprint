@@ -1,6 +1,7 @@
 """footprint — learn a local SLM from your Claude Code transcripts.
 
 Commands:
+  (none) / chat         interactive shell like Claude Code: chat, /login, /model, /help, every command below as /cmd
   setup                 create .venv + install the platform backend (mlx / torch)
   trace                 arm tracing: sessions from now on become training data (run before chatting)
   collect [project|--all]  curated training data: accepted turns + your own commits, redacted, split by session (default: this project)
@@ -26,13 +27,13 @@ Commands:
 """
 import os, sys
 
-from . import adapters, agent, bench, config, context, memory, ollama, service, switch, transcripts, vault
+from . import adapters, agent, bench, config, context, memory, ollama, repl, service, switch, transcripts, vault
 from .backends import get
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    cmd = argv[0] if argv else "status"
+    cmd = argv[0] if argv else "chat"
     if cmd == "train" and not os.path.exists(os.path.join(config.DATA, "train.jsonl")):
         sys.exit("no data. run: footprint collect")
     {"collect": lambda: transcripts.collect(argv[1] if len(argv) > 1 else None),
@@ -50,6 +51,7 @@ def main(argv=None):
      "memory": lambda: memory.memory_cmd(argv[1:]),
      "bench": lambda: bench.main(argv[1:]),
      "ask": lambda: agent.ask(argv[1:]),
+     "chat": repl.main,
      "status": service.status,
      "setup": service.setup,
      "login": lambda: vault.login(argv[1:]),

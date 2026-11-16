@@ -11,9 +11,6 @@ const venvPy = win
   : path.join(root, ".venv", "bin", "python");
 const args = process.argv.slice(2);
 
-if (args.length === 0) {
-  require("./banner");
-}
 
 // context/collect/status are stdlib-only: system python, no venv, no model download.
 // Only the local-model commands need the venv + backend (setup = local mode opt-in).
@@ -26,7 +23,7 @@ if (needsModel && !fs.existsSync(venvPy)) {
 }
 
 const py = fs.existsSync(venvPy) ? venvPy : sysPy;
-const r = spawnSync(py, [script, ...(args.length ? args : ["status"])], {
+const r = spawnSync(py, [script, ...(args.length ? args : ["chat"])], {
   stdio: "inherit",
 });
 process.exit(r.status === null ? 1 : r.status);

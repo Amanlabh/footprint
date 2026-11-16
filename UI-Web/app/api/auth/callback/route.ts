@@ -31,5 +31,10 @@ export async function GET(req: Request) {
   const { login } = await getUser(data.access_token);
   await ensureVault(data.access_token, login);
   await setSession({ token: data.access_token, login });
+  const cli = jar.get("fp_cli")?.value; // sign-in started from the footprint shell: back to its consent page
+  if (cli) {
+    jar.delete("fp_cli");
+    redirect(`/api/auth/cli?${cli}`);
+  }
   redirect("/account");
 }

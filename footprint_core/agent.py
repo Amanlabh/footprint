@@ -30,6 +30,8 @@ Tools:
   answer  your final answer to the user (input: the answer)
 Rules: if the question already contains what you need (e.g. the code), answer directly, no tool.
 Never claim a command ran, a file says something, or a fact is true unless a tool result above shows it.
+Facts you might not know or that change (versions, prices, news, APIs, docs, people, anything after your training): search
+the web first, then fetch the best page, then answer and name the source URL. Never ask the user to look it up.
 Unsure? Use a tool. Still unsure after that? Say you don't know. Keep the answer short."""
 FINAL = ("Now give your final answer with tool \"answer\". Use only what the question and the results above "
          "show; if they don't contain it, say you don't know.")
@@ -136,13 +138,17 @@ def fetch(url):
         return f"cannot fetch: {e}"
 
 
-def ask(argv=(), chat=_chat, out=print):
-    """-> final answer (or None if out of steps)."""
+def ask(argv=(), chat=_chat, out=print, history=None):
+    """-> final answer (or None if out of steps). history: earlier turns (the shell passes one list per chat; answers are appended)."""
     yes = "--yes" in argv
     q = " ".join(a for a in argv if a != "--yes").strip()
     if not q:
         sys.exit('usage: footprint ask "<question>" [--yes]')
-    msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, {"role": "user", "content": q}]
+    msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, *(history or []), {"role": "user", "content": q}]
+    def done_with(answer):
+        if history is not None:
+            history.extend([{"role": "user", "content": q}, {"role": "assistant", "content": answer}])
+        return answer
     tools = {"bash": lambda x: bash(x, yes), "read": read, "search": search, "fetch": fetch}
     done, last = set(), False
     for step in range(STEPS):
@@ -155,11 +161,11 @@ def ask(argv=(), chat=_chat, out=print):
             tool, arg = a["tool"], a["input"]
         except (ValueError, KeyError, TypeError):
             out(raw)  # not an action: treat as the answer
-            return raw
+            return done_with(raw)
         out(f"· {a.get('thought', '')}")
         if tool == "answer":
             out(arg)
-            return arg
+            return done_with(arg)
         out(f"  [{tool}] {arg}")
         if (tool, arg) in done:  # small models loop on one action: stop it and make it answer from what it has
             msgs += [{"role": "assistant", "content": raw}, {"role": "user", "content": FINAL}]
@@ -215,5 +221,11 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
         return json.dumps({"thought": "", "tool": "answer" if fmts[-1] == ["answer"] else "bash", "input": "echo x"})
     assert ask(["q", "--yes"], looper, out=lambda *_: None) == "echo x"
     assert loop[2] == FINAL and fmts == [TOOLS, TOOLS, ["answer"]], (loop, fmts)  # repeat -> answer next step
+    h = []  # chat memory: second turn sees the first
+    seen2 = []
+    ask(["my name is Ana"], lambda m, f: (seen2.append(m), json.dumps({"thought": "", "tool": "answer", "input": "hi Ana"}))[1], out=lambda *_: None, history=h)
+    ask(["what is my name"], lambda m, f: (seen2.append(m), json.dumps({"thought": "", "tool": "answer", "input": "Ana"}))[1], out=lambda *_: None, history=h)
+    assert [x["content"] for x in seen2[1][1:]] == ["my name is Ana", "hi Ana", "what is my name"], seen2[1]
+    assert len(h) == 4
     os.remove(f.name)
     print("agent self-check ok")
