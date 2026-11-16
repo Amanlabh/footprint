@@ -25,7 +25,8 @@ def say(text, color=FG):
 
 def models():
     with urllib.request.urlopen(ollama.URL + "/api/tags", timeout=5) as r:
-        return [m["name"] for m in json.load(r)["models"]]
+        return [m["name"] for m in json.load(r)["models"]
+                if "embed" not in m["name"] and "bert" not in m.get("details", {}).get("family", "")]  # not chat models
 
 
 def model_cmd(args):
