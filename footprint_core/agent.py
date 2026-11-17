@@ -11,6 +11,7 @@ instant answers. Tavily: your own TAVILY_API_KEY, else footprint's server when l
 server holds a key, daily limit, queries not stored), else Tavily keyless (rate-limited per user).
 fetch = r.jina.ai reads the page as text.
 Privacy: queries go to those sites (web queries via footprint's server when logged in), fetched URLs via Jina.
+Every answer is saved, dated, to local memory (~/.footprint/memory.db, table asks) for later recall.
 """
 import gzip, html, json, os, re, ssl, subprocess, sys, urllib.parse, urllib.request
 
@@ -153,12 +154,12 @@ def ask(argv=(), chat=_chat, out=print, history=None):
     if not q:
         sys.exit('usage: footprint ask "<question>" [--yes]')
     msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, *(history or []), {"role": "user", "content": q}]
-    web = []  # searches/fetches this answer used
+    steps = []  # tool calls this answer used
     def done_with(answer):
-        if web:  # answered from the web: keep it in memory (with its date), not in the model's weights
+        if answer:  # every answer -> memory (dated): later sessions recall it; web facts stay out of the weights
             try:
                 from . import memory
-                memory.save_ask(q, answer, web, os.getcwd())
+                memory.save_ask(q, answer, steps, os.getcwd())
             except Exception as e:  # memory must never break answering
                 out(f"· (not saved to memory: {e})")
         if history is not None:
@@ -202,8 +203,7 @@ def ask(argv=(), chat=_chat, out=print, history=None):
             continue
         else:
             done.add((tool, arg))
-            if tool in ("search", "fetch"):
-                web.append(f"{tool}: {arg}")
+            steps.append(f"{tool}: {arg}")
             res = f"Result of {tool}:\n{tools[tool](arg)[:CAP]}"
         msgs += [{"role": "assistant", "content": raw}, {"role": "user", "content": res}]
     return None  # unreachable: the last step only allows answer
@@ -211,6 +211,8 @@ def ask(argv=(), chat=_chat, out=print, history=None):
 
 if __name__ == "__main__":  # self-check: scripted model -> tool results reach it, answer ends the loop
     import tempfile
+    from . import memory
+    memory.DB = os.path.join(tempfile.mkdtemp(), "m.db")  # never write test chats into the real memory
     f = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
     f.write("secret=42")
     f.close()
@@ -271,8 +273,7 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
         return json.dumps(next(acts))
     assert ask(["q", "--yes"], checker, out=lambda *_: None) == "1"
     assert "not in results" in told[-1], told
-    # web answer -> saved to memory (temp db); a bash-only answer is not
-    from . import memory
+    # every answer -> memory, with the tools it used
     memory.DB = os.path.join(tempfile.mkdtemp(), "m.db")
     acts = iter([{"thought": "", "tool": "search", "input": "pstn"}, {"thought": "", "tool": "answer", "input": "phone net"}])
     ask(["what is pstn"], lambda m, fmt: json.dumps({"ok": True, "problem": ""} if "ok" in fmt["properties"] else next(acts)),

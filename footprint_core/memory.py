@@ -228,7 +228,7 @@ def _db():
     db.executescript("create table if not exists meta (k text primary key, v text);"
                      "create table if not exists sessions (src text, key text, stamp real, tasks text, primary key (src, key));"
                      "create table if not exists embeds (id text primary key, model text, vec blob);"
-                     # footprint ask web answers: no transcript to rebuild from, so never dropped by build()/VERSION
+                     # footprint shell/ask answers: no transcript to rebuild from, so never dropped by build()/VERSION
                      "create table if not exists asks (id text primary key, task text);")
     if (db.execute("select v from meta where k = 'v'").fetchone() or [None])[0] != str(VERSION):
         with db:
@@ -297,8 +297,8 @@ def build(skip_sid=None):
 
 
 def save_ask(question, answer, steps, cwd):
-    """A `footprint ask` answer found on the web -> memory, so any later session (Claude, OpenCode, ask) recalls it,
-    dated: web facts go stale, the "Xd ago" in the brief says how old. steps = the searches/fetches it took."""
+    """A `footprint` shell / `footprint ask` answer -> memory, so any later session (Claude, OpenCode, ask) recalls it,
+    dated: web facts go stale, the "Xd ago" in the brief says how old. steps = the tool calls it took."""
     now = time.time()
     t = _task("footprint ask", f"ask-{now:.0f}", cwd, now, question)
     t["cmds"], t["outcome"] = list(steps), answer
