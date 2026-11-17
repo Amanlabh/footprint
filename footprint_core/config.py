@@ -92,7 +92,9 @@ TOOLS = [_t("bash", "Run a shell command", {"command": _s, "description": _s, "t
                                                "replaceAll": {"type": "boolean"}}, ["filePath", "oldString", "newString"]),
          _t("write", "Write a whole file", {"filePath": _s, "content": _s}, ["filePath", "content"]),
          _t("grep", "Search file contents", {"pattern": _s, "path": _s, "include": _s}, ["pattern"]),
-         _t("glob", "Find files by pattern", {"pattern": _s, "path": _s}, ["pattern"])]
+         _t("glob", "Find files by pattern", {"pattern": _s, "path": _s}, ["pattern"]),
+         _t("websearch", "Search the web", {"query": _s}, ["query"]),
+         _t("webfetch", "Read a web page", {"url": _s}, ["url"])]
 
 
 def has_adapter():

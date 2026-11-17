@@ -36,6 +36,10 @@ Unsure? Use a tool. Still unsure after that? Say you don't know. Keep the answer
 FINAL = ("Now give your final answer with tool \"answer\". Use only what the question and the results above "
          "show; if they don't contain it, say you don't know.")
 TOOLS = ["bash", "read", "search", "fetch", "answer"]
+CHECK = ("Check the draft answer you just gave. ok=true only if every fact in it is shown by the question or the tool "
+         "results above. Otherwise ok=false and name what is unsupported or missing in problem.")
+CHECK_SCHEMA = {"type": "object", "required": ["ok", "problem"],
+                "properties": {"ok": {"type": "boolean"}, "problem": {"type": "string"}}}
 
 
 def schema(tools=TOOLS):
@@ -154,7 +158,7 @@ def ask(argv=(), chat=_chat, out=print, history=None):
             history.extend([{"role": "user", "content": q}, {"role": "assistant", "content": answer}])
         return answer
     tools = {"bash": lambda x: bash(x, yes), "read": read, "search": search, "fetch": fetch}
-    done, last = set(), False
+    done, last, checked = set(), False, False
     for step in range(STEPS):
         if step == STEPS - 1 and not last:  # out of steps: answer only, from what it has
             msgs.append({"role": "user", "content": FINAL})
@@ -167,6 +171,20 @@ def ask(argv=(), chat=_chat, out=print, history=None):
             out(raw)  # not an action: treat as the answer
             return done_with(raw)
         out(f"· {a.get('thought', '')}")
+        if tool == "answer" and done and not (last or checked):
+            # reasoning check, once: after tools ran, does the evidence back the answer? catches made-up results
+            # ponytail: the model judges itself (weak at 1.5B); a bigger judge model if this misses too much
+            checked = True
+            try:
+                v = json.loads(chat(msgs + [{"role": "assistant", "content": raw}, {"role": "user", "content": CHECK}], CHECK_SCHEMA))
+            except (ValueError, TypeError):
+                v = {"ok": True}
+            if not v.get("ok", True):
+                out(f"· check: {v.get('problem', '')}")
+                msgs += [{"role": "assistant", "content": raw}, {"role": "user", "content":
+                         f"That answer isn't backed by the results: {v.get('problem', '')}. Get what's missing with a tool, "
+                         "or answer with only what the results show."}]
+                continue
         if tool == "answer":
             out(arg)
             return done_with(arg)
@@ -192,6 +210,8 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
                    {"thought": "done", "tool": "answer", "input": "42"}])
     seen = []
     def fake(msgs, fmt):
+        if "ok" in fmt["properties"]:
+            return json.dumps({"ok": True, "problem": ""})
         seen.append(msgs[-1]["content"])
         return json.dumps(next(script))
     assert ask(["what is the secret", "--yes"], fake, out=lambda *_: None) == "42"
@@ -231,5 +251,16 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
     ask(["what is my name"], lambda m, f: (seen2.append(m), json.dumps({"thought": "", "tool": "answer", "input": "Ana"}))[1], out=lambda *_: None, history=h)
     assert [x["content"] for x in seen2[1][1:]] == ["my name is Ana", "hi Ana", "what is my name"], seen2[1]
     assert len(h) == 4
+    # check says unsupported -> told why, tries again; the second answer is accepted (check runs once)
+    acts = iter([{"thought": "", "tool": "bash", "input": "echo 1"}, {"thought": "", "tool": "answer", "input": "made up"},
+                 {"thought": "", "tool": "answer", "input": "1"}])
+    told = []
+    def checker(msgs, fmt):
+        if "ok" in fmt["properties"]:
+            return json.dumps({"ok": False, "problem": "not in results"})
+        told.append(msgs[-1]["content"])
+        return json.dumps(next(acts))
+    assert ask(["q", "--yes"], checker, out=lambda *_: None) == "1"
+    assert "not in results" in told[-1], told
     os.remove(f.name)
     print("agent self-check ok")

@@ -56,7 +56,10 @@ CC_TO_OC = {"Bash": ("bash", {"command": "command", "description": "description"
                               "replace_all": "replaceAll"}),
             "Write": ("write", {"file_path": "filePath", "content": "content"}),
             "Grep": ("grep", {"pattern": "pattern", "path": "path", "glob": "include"}),
-            "Glob": ("glob", {"pattern": "pattern", "path": "path"})}
+            "Glob": ("glob", {"pattern": "pattern", "path": "path"}),
+            "WebSearch": ("websearch", {"query": "query"}),  # Claude's own browsing = the search habit to learn
+            "WebFetch": ("webfetch", {"url": "url"})}
+THINK_CAP = 1500  # chars of Claude's visible thinking kept per block: the reasoning before an action
 
 
 def _clean(t):
@@ -84,6 +87,8 @@ def parse_native(path, errors=None):
             for b in blocks:
                 if b.get("type") == "text" and b.get("text", "").strip():
                     text.append(b["text"].strip())
+                elif b.get("type") == "thinking" and b.get("thinking", "").strip():  # most are redacted (empty)
+                    text.append(f"<think>{b['thinking'].strip()[:THINK_CAP]}</think>")
                 elif b.get("type") == "tool_use":
                     name, amap = CC_TO_OC.get(b.get("name"), (None, None))
                     if not name:
