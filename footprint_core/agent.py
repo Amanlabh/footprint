@@ -19,6 +19,7 @@ from . import ollama, vault
 
 MODEL = os.environ.get("FOOTPRINT_AGENT_MODEL", ollama.NAME)
 STEPS = int(os.environ.get("FOOTPRINT_AGENT_STEPS", "6"))
+HISTORY = 20  # earlier chat messages sent along (10 turns); ponytail: oldest dropped, summarise them if that loses too much
 CAP = 2000  # chars of tool output fed back: a small context fills fast
 SYSTEM = """You are a coding assistant on the user's machine. Working directory: {cwd}
 Reply with ONE JSON action per turn:
@@ -153,7 +154,7 @@ def ask(argv=(), chat=_chat, out=print, history=None):
     q = " ".join(a for a in argv if a != "--yes").strip()
     if not q:
         sys.exit('usage: footprint ask "<question>" [--yes]')
-    msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, *(history or []), {"role": "user", "content": q}]
+    msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, *(history or [])[-HISTORY:], {"role": "user", "content": q}]
     steps = []  # tool calls this answer used
     def done_with(answer):
         if answer:  # every answer -> memory (dated): later sessions recall it; web facts stay out of the weights

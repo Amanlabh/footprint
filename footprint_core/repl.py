@@ -4,7 +4,7 @@ Colors = the website's dark theme (UI-Web/app/globals.css, converted from oklch)
 /login  browser sign-in: GitHub on the website -> key handed back to a one-shot listener on 127.0.0.1
 /model  pick any model Ollama has downloaded; remembered in ~/.footprint/model
 """
-import http.server, json, math, os, secrets, shutil, sys, time, urllib.parse, urllib.request, webbrowser
+import glob, http.server, json, math, os, secrets, shutil, sys, time, urllib.parse, urllib.request, webbrowser
 
 from . import agent, ollama, vault
 
@@ -12,11 +12,14 @@ _rgb = lambda r, g, b: f"\x1b[38;2;{r};{g};{b}m"
 PRI, FG, MUTED, ACC = _rgb(255, 109, 130), _rgb(249, 236, 225), _rgb(200, 161, 147), _rgb(211, 240, 184)
 B, R = "\x1b[1m", "\x1b[0m"
 MODEL_FILE = os.path.join(vault.HOME, "model")
+CHATS = os.path.join(vault.HOME, "chats")  # one JSON per shell chat: /resume reloads it
 CLI = ["status", "trace", "collect", "train", "eval", "adapter", "serve", "install", "context", "switch",
        "recall", "profile", "facts", "memory", "bench", "setup", "key", "sync"]
 OWN = {"help": "this list", "login": "sign in through the website (GitHub)", "logout": "sign out on this computer",
        "model": "pick a downloaded model: /model, /model 2, /model qwen2.5-coder:7b",
-       "clear": "start a new conversation", "exit": "quit (or Ctrl-D)"}
+       "resume": "continue an earlier chat: /resume, /resume 2", "clear": "start a new conversation",
+       "exit": "quit (or Ctrl-D)"}
+CHAT = {"id": time.strftime("%Y%m%d-%H%M%S"), "history": []}  # the chat on screen; /resume and /clear swap it
 
 
 def say(text, color=FG):
@@ -99,6 +102,55 @@ def logout_cmd(_):
     say("signed out on this computer. (keys stay listed on the website until you revoke them)", MUTED)
 
 
+def save_chat():
+    if CHAT["history"]:
+        os.makedirs(CHATS, exist_ok=True)
+        tmp = os.path.join(CHATS, CHAT["id"] + ".tmp")
+        json.dump({"cwd": os.getcwd(), "history": CHAT["history"]}, open(tmp, "w", encoding="utf-8"))
+        os.replace(tmp, os.path.join(CHATS, CHAT["id"] + ".json"))
+
+
+def past_chats():
+    """Saved chats, newest first, minus the one on screen -> [(id, data, mtime)]"""
+    out = []
+    for f in sorted(glob.glob(os.path.join(CHATS, "*.json")), key=os.path.getmtime, reverse=True):
+        cid = os.path.basename(f)[:-5]
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if cid != CHAT["id"] and d.get("history"):
+            out.append((cid, d, os.path.getmtime(f)))
+    return out
+
+
+def resume_cmd(args):
+    past = past_chats()[:10]
+    if not past:
+        return say("no earlier chats saved yet.", MUTED)
+    pick = args[0] if args else None
+    if pick is None:
+        for i, (_, d, m) in enumerate(past, 1):
+            h = (time.time() - m) / 3600
+            when = f"{h * 60:.0f}m" if h < 1 else f"{h:.0f}h" if h < 24 else f"{h / 24:.0f}d"
+            first = d["history"][0]["content"].replace("\n", " ")[:56]
+            print(f"  {PRI}{i:>2}.{R} {FG}{first}{R}  {MUTED}{when} ago · {len(d['history']) // 2} msgs · "
+                  f"{d.get('cwd', '').replace(os.path.expanduser('~'), '~')}{R}")
+        pick = input(f"{MUTED}number (Enter = cancel): {R}").strip()
+        if not pick:
+            return
+    if not (pick.isdigit() and 0 < int(pick) <= len(past)):
+        return say(f"no chat {pick}. /resume lists them.", PRI)
+    cid, d, _ = past[int(pick) - 1]
+    CHAT["id"], CHAT["history"][:] = cid, d["history"]
+    h = CHAT["history"]
+    if len(h) > 6:
+        say(f"  … {len(h) - 6} earlier messages", MUTED)
+    for m in h[-6:]:  # the tail on screen; the model gets the whole chat
+        say(f"❯ {m['content']}" if m["role"] == "user" else m["content"], MUTED if m["role"] == "user" else FG)
+    say(f"resumed ({len(h) // 2} msgs). carry on.", ACC)
+
+
 def help_cmd(_):
     say("type a question or a task. footprint uses tools (shell, files, web search) when it needs them.", MUTED)
     for k, v in OWN.items():
@@ -177,8 +229,7 @@ def main():
     except ImportError:  # Windows
         pass
     header()
-    history = []
-    own = {"help": help_cmd, "login": login_cmd, "logout": logout_cmd, "model": model_cmd}
+    own = {"help": help_cmd, "login": login_cmd, "logout": logout_cmd, "model": model_cmd, "resume": resume_cmd}
     while True:
         try:
             line = prompt().strip()
@@ -193,7 +244,7 @@ def main():
                 if cmd in ("exit", "quit"):
                     return
                 if cmd == "clear":
-                    history.clear()
+                    CHAT["id"], CHAT["history"] = time.strftime("%Y%m%d-%H%M%S"), []
                     say("new conversation.", MUTED)
                 elif cmd in own:
                     own[cmd](args)
@@ -202,8 +253,30 @@ def main():
                 else:
                     say(f"unknown command /{cmd}. /help lists them.", PRI)
                 continue
-            agent.ask([line], out=styled, history=history)
+            agent.ask([line], out=styled, history=CHAT["history"])
+            save_chat()
         except KeyboardInterrupt:
             say("\ninterrupted.", MUTED)
         except OSError as e:
             say(f"can't reach the model at {ollama.URL} ({e}). Start Ollama, or /model to pick another.", PRI)
+
+
+if __name__ == "__main__":  # self-check: chats save, list newest-first without the current one, resume loads
+    import tempfile
+    CHATS = tempfile.mkdtemp()
+    CHAT.update(id="a", history=[{"role": "user", "content": "first q"}, {"role": "assistant", "content": "first a"}])
+    save_chat()
+    time.sleep(0.01)
+    CHAT.update(id="b", history=[{"role": "user", "content": "second q"}, {"role": "assistant", "content": "second a"}])
+    save_chat()
+    assert [c[0] for c in past_chats()] == ["a"]  # b is on screen
+    CHAT.update(id="c", history=[])
+    save_chat()  # empty chat: not saved
+    assert [c[0] for c in past_chats()] == ["b", "a"]
+    say = lambda *a: None
+    resume_cmd(["2"])
+    assert CHAT["id"] == "a" and CHAT["history"][1]["content"] == "first a"
+    CHAT["history"] += [{"role": "user", "content": "more"}, {"role": "assistant", "content": "ok"}]
+    save_chat()  # resumed chat keeps saving into its own file
+    assert len(json.load(open(os.path.join(CHATS, "a.json")))["history"]) == 4
+    print("repl self-check ok")
