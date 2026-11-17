@@ -227,7 +227,9 @@ def _db():
     db.execute("pragma journal_mode=wal")
     db.executescript("create table if not exists meta (k text primary key, v text);"
                      "create table if not exists sessions (src text, key text, stamp real, tasks text, primary key (src, key));"
-                     "create table if not exists embeds (id text primary key, model text, vec blob);")
+                     "create table if not exists embeds (id text primary key, model text, vec blob);"
+                     # footprint ask web answers: no transcript to rebuild from, so never dropped by build()/VERSION
+                     "create table if not exists asks (id text primary key, task text);")
     if (db.execute("select v from meta where k = 'v'").fetchone() or [None])[0] != str(VERSION):
         with db:
             db.execute("delete from sessions")
@@ -289,8 +291,21 @@ def build(skip_sid=None):
                        ((s, k, m, json.dumps(ts)) for (s, k), (m, ts) in put.items()))
         db.executemany("delete from sessions where src = ? and key = ?", gone)
     tasks = [t for (raw,) in db.execute("select tasks from sessions") for t in json.loads(raw)]
+    tasks += [json.loads(raw) for (raw,) in db.execute("select task from asks")]
     db.close()
     return tasks
+
+
+def save_ask(question, answer, steps, cwd):
+    """A `footprint ask` answer found on the web -> memory, so any later session (Claude, OpenCode, ask) recalls it,
+    dated: web facts go stale, the "Xd ago" in the brief says how old. steps = the searches/fetches it took."""
+    now = time.time()
+    t = _task("footprint ask", f"ask-{now:.0f}", cwd, now, question)
+    t["cmds"], t["outcome"] = list(steps), answer
+    db = _db()
+    with db:
+        db.execute("insert or replace into asks values (?, ?)", (t["id"], json.dumps(_slim([t])[0])))
+    db.close()
 
 
 def search(query, tasks, cwd=None, exclude_sid=None, exclude_ids=()):

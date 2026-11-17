@@ -153,7 +153,14 @@ def ask(argv=(), chat=_chat, out=print, history=None):
     if not q:
         sys.exit('usage: footprint ask "<question>" [--yes]')
     msgs = [{"role": "system", "content": SYSTEM.format(cwd=os.getcwd())}, *(history or []), {"role": "user", "content": q}]
+    web = []  # searches/fetches this answer used
     def done_with(answer):
+        if web:  # answered from the web: keep it in memory (with its date), not in the model's weights
+            try:
+                from . import memory
+                memory.save_ask(q, answer, web, os.getcwd())
+            except Exception as e:  # memory must never break answering
+                out(f"· (not saved to memory: {e})")
         if history is not None:
             history.extend([{"role": "user", "content": q}, {"role": "assistant", "content": answer}])
         return answer
@@ -195,6 +202,8 @@ def ask(argv=(), chat=_chat, out=print, history=None):
             continue
         else:
             done.add((tool, arg))
+            if tool in ("search", "fetch"):
+                web.append(f"{tool}: {arg}")
             res = f"Result of {tool}:\n{tools[tool](arg)[:CAP]}"
         msgs += [{"role": "assistant", "content": raw}, {"role": "user", "content": res}]
     return None  # unreachable: the last step only allows answer
@@ -262,5 +271,16 @@ if __name__ == "__main__":  # self-check: scripted model -> tool results reach i
         return json.dumps(next(acts))
     assert ask(["q", "--yes"], checker, out=lambda *_: None) == "1"
     assert "not in results" in told[-1], told
+    # web answer -> saved to memory (temp db); a bash-only answer is not
+    from . import memory
+    memory.DB = os.path.join(tempfile.mkdtemp(), "m.db")
+    acts = iter([{"thought": "", "tool": "search", "input": "pstn"}, {"thought": "", "tool": "answer", "input": "phone net"}])
+    ask(["what is pstn"], lambda m, fmt: json.dumps({"ok": True, "problem": ""} if "ok" in fmt["properties"] else next(acts)),
+        out=lambda *_: None)
+    import sqlite3
+    rows = [json.loads(r) for (r,) in sqlite3.connect(memory.DB).execute("select task from asks")]
+    assert len(rows) == 1 and rows[0]["prompt"] == "what is pstn" and rows[0]["outcome"] == "phone net" \
+        and rows[0]["cmds"] == ["search: pstn"] and rows[0]["src"] == "footprint ask", rows
+    assert any(t["id"] == rows[0]["id"] for t in memory.build()), "build() must return ask rows"
     os.remove(f.name)
     print("agent self-check ok")
