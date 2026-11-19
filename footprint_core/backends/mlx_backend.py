@@ -49,8 +49,8 @@ def _plan(quick=False):
         if need:
             scores = _scores(need)
         rows, picked = select.select(rows, config.STEP_BUDGET, scores)
-        if config.COMPRESS == "llmlingua":
-            rows, squeezed = compress.compress(rows)
+        if config.COMPRESS in ("llmlingua", "ctxprune"):
+            rows, squeezed = compress.compress(rows, backend=config.COMPRESS)
         n_of = lambda e: config.ntok(tok.apply_chat_template(e["messages"], tools=e.get("tools"), tokenize=True))
         sets["train"] = [(n_of(e), e) for e in rows]
     data = config.DATA

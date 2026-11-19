@@ -52,7 +52,7 @@ STEP_BUDGET = int(os.environ.get("FOOTPRINT_STEP_BUDGET", "300"))  # max lessons
 # lessons scored per validation check. 25 took ~70 s per check on a 16 GB M2 = a quarter of the run
 VAL_BATCHES = int(os.environ.get("FOOTPRINT_VAL_BATCHES", "12"))
 PATIENCE = int(os.environ.get("FOOTPRINT_PATIENCE", "2"))  # stop after this many evals in a row without a better val loss
-# opt-in: "llmlingua" shortens long tool outputs in TRAIN lessons (compress.py). Off by default: the model then
+# opt-in: "llmlingua" or "ctxprune" shortens long tool outputs in TRAIN lessons (compress.py). Off by default: the model then
 # trains on compressed context but sees full context at run time — check the test loss before keeping it
 COMPRESS = os.environ.get("FOOTPRINT_COMPRESS", "")
 COMPRESS_RATE = float(os.environ.get("FOOTPRINT_COMPRESS_RATE", "0.5"))  # share of tokens kept

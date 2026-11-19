@@ -233,7 +233,7 @@ Or point any OpenAI-compatible tool at the server:
 | `FOOTPRINT_STEP_BUDGET` | `300` | most lessons `train` picks = most steps it runs. Training time stops growing with your history |
 | `FOOTPRINT_SELECT` | `on` | `off` = train on every lesson (the old behaviour) |
 | `FOOTPRINT_PATIENCE` | `2` | stop when the validation loss hasn't improved for this many checks in a row |
-| `FOOTPRINT_COMPRESS` | off | `llmlingua` = shorten long tool outputs in train lessons with LLMLingua-2 (`pip install llmlingua`). Opt-in: check the test loss |
+| `FOOTPRINT_COMPRESS` | off | `llmlingua` = shorten long tool outputs in train lessons with LLMLingua-2 (`pip install llmlingua`); `ctxprune` = the same call through a CPU-only drop-in (`pip install ctxprune`, ~143 MB model, never drops identifiers, paths or numbers). Opt-in: check the test loss |
 | `FOOTPRINT_MIN_EVAL` | `10` | validation/test examples `collect` aims for; below it, `train` skips early stop |
 | `FOOTPRINT_ITERS_CAP` | `2000` | ceiling on auto iterations |
 | `FOOTPRINT_BATCH` | `1` | batch size for train + eval |
