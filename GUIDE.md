@@ -122,7 +122,7 @@ footprint install
 ```
 
 This builds the `footprint` model in [Ollama](https://ollama.com/download): your adapter,
-converted to GGUF, on `qwen2.5-coder:1.5b`. Ollama starts at login, so you never run a
+baked into Ollama's `qwen2.5-coder:1.5b` file (newer Ollama no longer loads separate LoRA adapters). Ollama starts at login, so you never run a
 server by hand. A new live adapter (`train`, `adapter use`) rebuilds it. It also wires up OpenCode:
 
 - provider `footprint` at `http://127.0.0.1:11434/v1`
