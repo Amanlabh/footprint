@@ -38,7 +38,7 @@ def main(argv=None):
         sys.exit("no data. run: footprint collect")
     {"collect": lambda: transcripts.collect(argv[1] if len(argv) > 1 else None),
      "trace": service.trace,
-     "train": lambda: get().train(),
+     "train": lambda: (ollama.unload(), get().train()),  # a loaded `footprint` + training = out of GPU memory
      "eval": lambda: get().evaluate(),
      "adapter": lambda: adapters.main(argv[1:]),
      "serve": ollama.build,

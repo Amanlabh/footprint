@@ -43,15 +43,23 @@ def setup():
 
 
 def _opencode():
-    cfg_path = os.path.join(config.OPENCODE, "opencode.json")
-    cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {"$schema": "https://opencode.ai/config.json"}
-    cfg.setdefault("provider", {})["footprint"] = {
-        "npm": "@ai-sdk/openai-compatible", "name": "footprint",
-        "options": {"baseURL": f"{ollama.URL}/v1"},
-        "models": {"footprint": {"name": "footprint"}}}
+    # add to the config file the user already has: opencode.json, else opencode.jsonc, else a new opencode.json
+    paths = [os.path.join(config.OPENCODE, n) for n in ("opencode.json", "opencode.jsonc")]
+    cfg_path = next((p for p in paths if os.path.exists(p)), paths[0])
+    provider = {"npm": "@ai-sdk/openai-compatible", "name": "footprint",
+                "options": {"baseURL": f"{ollama.URL}/v1"},
+                "models": {"footprint": {"name": "footprint"}}}
+    try:
+        cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.exists(cfg_path) else {"$schema": "https://opencode.ai/config.json"}
+    except ValueError:  # .jsonc with comments: don't rewrite (and lose) the user's file
+        print(f"couldn't edit {cfg_path} (has comments?). add this under \"provider\":\n"
+              + json.dumps({"footprint": provider}, indent=2))
+        cfg = None
+    if cfg is not None:
+        cfg.setdefault("provider", {})["footprint"] = provider
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
     os.makedirs(os.path.join(config.OPENCODE, "commands"), exist_ok=True)
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
     with open(os.path.join(config.OPENCODE, "commands", "footprint.md"), "w", encoding="utf-8") as f:
         f.write("---\ndescription: do task with footprint — local model trained on your Claude sessions\n"
                 "model: footprint/footprint\n---\n$ARGUMENTS\n")

@@ -88,8 +88,8 @@ into every prompt, so any model reuses how you solved it before.
 3. Context length is capped to fit your RAM; oldest context is trimmed first.
 4. LoRA fine-tunes the last half of the layers (14 of 28 on Qwen2.5-Coder-1.5B, 4-bit MLX).
 5. The new adapter goes live only if its test loss beats both the base model and the active adapter, all scored on the same test set (older scores are re-measured).
-6. `footprint install` converts the adapter to GGUF (a few MB) and builds Ollama model `footprint`
-   (`qwen2.5-coder:1.5b` + adapter) at `http://127.0.0.1:11434/v1` for OpenCode, Cursor, or any
+6. `footprint install` bakes the adapter into Ollama's own `qwen2.5-coder:1.5b` file (only the trained
+   layers change; ~20 s, ~1.3 GB) and builds Ollama model `footprint` at `http://127.0.0.1:11434/v1` for OpenCode, Cursor, or any
    OpenAI-compatible tool. Ollama starts itself at login; a new live adapter rebuilds the model.
 
 **Bench:** `footprint bench` replays your real finished tasks with any model and scores it against Claude.
@@ -180,7 +180,7 @@ footprint install
 ```
 
 This builds the `footprint` model in [Ollama](https://ollama.com/download): your adapter,
-converted to GGUF, on `qwen2.5-coder:1.5b`. Ollama starts at login, so you never run a
+baked into Ollama's `qwen2.5-coder:1.5b` file (newer Ollama no longer loads separate LoRA adapters). Ollama starts at login, so you never run a
 server by hand. A new live adapter (`train`, `adapter use`) rebuilds it. It also wires up OpenCode:
 
 - provider `footprint` at `http://127.0.0.1:11434/v1`
